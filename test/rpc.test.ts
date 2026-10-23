@@ -49,7 +49,7 @@ test('host mounts matching strict descriptors and a visible Gateway service bind
   new Registry(ctx)
   mountHostRpc(ctx, {} as PluginApi)
   assert.deepEqual(registered, {
-    package: '@xunz/dsh-chatgpt-sub', face: 'host', schemas: [],
+    package: '@xunz03/dsh-chatgpt-sub', face: 'host', schemas: [],
     model: { services: [], events: [], objects: [] }, invocations: rpcContribution.descriptors,
   })
   const receiver = ctx.get('chatgptSubscription' as never) as unknown as ChatGPTSubscriptionRpc

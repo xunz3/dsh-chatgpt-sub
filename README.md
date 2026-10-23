@@ -13,7 +13,7 @@ Requires **Node.js 22.12+** and **DeepSeek Harness 0.2.1-rc.2**.
 Install from npm into your Harness profile (`web` in this example):
 
 ```sh
-dsh plugin --profile web add @xunz/dsh-chatgpt-sub
+dsh plugin --profile web add @xunz03/dsh-chatgpt-sub
 ```
 
 ## Usage
@@ -44,7 +44,9 @@ pnpm check:package
 
 Routine checks use mocked requests. Live Harness tests require explicit opt-in; see [validation](docs/behavior.md#验证).
 
-After the package check, install the local build with `dsh plugin --profile web add ./xunz-dsh-chatgpt-sub-0.1.0.tgz`.
+After the package check, install the local build with `dsh plugin --profile web add ./xunz03-dsh-chatgpt-sub-0.1.0.tgz`.
+
+[Release workflow](docs/releasing.md)
 
 ## License
 

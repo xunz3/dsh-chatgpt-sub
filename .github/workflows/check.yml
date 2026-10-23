@@ -1,5 +1,9 @@
 name: Check
-on: [push, pull_request]
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_call:
 permissions:
   contents: read
 jobs:
@@ -22,3 +26,18 @@ jobs:
       - if: matrix.node == 26
         run: pnpm test:browser
       - run: pnpm check:package
+        id: package
+      - if: matrix.node == 26
+        env:
+          TARBALL: ${{ steps.package.outputs.tarball }}
+          INTEGRITY: ${{ steps.package.outputs.integrity }}
+        run: printf 'tarball=%s\nintegrity=%s\n' "$TARBALL" "$INTEGRITY" > release-package.txt
+      - if: matrix.node == 26
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: |
+            ${{ steps.package.outputs.tarball }}
+            release-package.txt
+          retention-days: 7
+          if-no-files-found: error

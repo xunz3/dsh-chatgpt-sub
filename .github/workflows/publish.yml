@@ -1,12 +1,12 @@
 name: Publish to npm
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Validate a version tag without publishing
+        description: Validate without publishing
         type: boolean
         default: true
 
@@ -18,12 +18,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check:
+    uses: ./.github/workflows/check.yml
   publish:
-    # Both release and manual runs must select a version tag. The step below
-    # also checks that the tag matches package.json before installing anything.
-    if: github.repository == 'xunz3/dsh-chatgpt-sub' && github.ref_type == 'tag'
+    needs: check
+    if: github.repository == 'xunz3/dsh-chatgpt-sub' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
@@ -36,64 +37,33 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - uses: pnpm/action-setup@v4
-      - name: Validate release version
+      - run: npm install --global npm@11.17.0
+      - name: Check whether this version needs publishing
         id: release
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          RELEASE_REF_TYPE: ${{ github.ref_type }}
-          IS_PRERELEASE: ${{ github.event.release.prerelease }}
-        run: |
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict'
-          import { readFileSync, appendFileSync } from 'node:fs'
-          const { version } = JSON.parse(readFileSync('package.json', 'utf8'))
-          assert.equal(process.env.RELEASE_REF_TYPE, 'tag', 'Select a version tag, not a branch')
-          assert.equal(process.env.RELEASE_TAG, `v${version}`, 'Tag must match package.json version')
-          assert(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?$/.test(version), 'Invalid release version')
-          const prerelease = version.includes('-')
-          if (process.env.IS_PRERELEASE) assert.equal(process.env.IS_PRERELEASE, String(prerelease), 'GitHub prerelease flag must match the version')
-          appendFileSync(process.env.GITHUB_OUTPUT, `tag=${prerelease ? 'next' : 'latest'}\n`)
-          NODE
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:browser
-      - name: Pack and verify publishable contents
+        run: node scripts/release.ts plan
+      - uses: actions/download-artifact@v4
+        if: steps.release.outputs.publish == 'true'
+        with:
+          name: release-package
+      - name: Read checked artifact metadata
+        if: steps.release.outputs.publish == 'true'
         id: package
-        run: pnpm check:package
+        run: cat release-package.txt >> "$GITHUB_OUTPUT"
       - name: Verify npm publish request
+        if: steps.release.outputs.publish == 'true'
         env:
           TARBALL: ${{ steps.package.outputs.tarball }}
           DIST_TAG: ${{ steps.release.outputs.tag }}
         run: npm publish "./$TARBALL" --dry-run --ignore-scripts --access public --tag "$DIST_TAG"
       - name: Publish with npm trusted publishing
-        if: github.event_name == 'release' || !inputs.dry_run
+        if: steps.release.outputs.publish == 'true' && (github.event_name == 'push' || !inputs.dry_run)
         env:
           TARBALL: ${{ steps.package.outputs.tarball }}
           DIST_TAG: ${{ steps.release.outputs.tag }}
         run: npm publish "./$TARBALL" --ignore-scripts --access public --tag "$DIST_TAG"
       - name: Verify registry version and integrity
-        if: github.event_name == 'release' || !inputs.dry_run
+        if: steps.release.outputs.publish == 'true' && (github.event_name == 'push' || !inputs.dry_run)
         env:
           EXPECTED_INTEGRITY: ${{ steps.package.outputs.integrity }}
           DIST_TAG: ${{ steps.release.outputs.tag }}
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs'
-          import { setTimeout } from 'node:timers/promises'
-          const { name, version } = JSON.parse(readFileSync('package.json', 'utf8'))
-          const url = `https://registry.npmjs.org/${encodeURIComponent(name)}`
-          for (let attempt = 0; attempt < 12; attempt++) {
-            const response = await fetch(url, { signal: AbortSignal.timeout(15000) })
-            if (response.ok) {
-              const metadata = await response.json()
-              if (metadata['dist-tags']?.[process.env.DIST_TAG] === version && metadata.versions?.[version]?.dist?.integrity === process.env.EXPECTED_INTEGRITY) {
-                console.log(`Verified ${name}@${version} (${process.env.DIST_TAG})`)
-                process.exit(0)
-              }
-            }
-            await setTimeout(10000)
-          }
-          throw new Error('Published package version, dist-tag, or integrity could not be verified')
-          NODE
+        run: node scripts/release.ts verify
