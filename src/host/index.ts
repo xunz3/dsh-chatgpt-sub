@@ -1,13 +1,14 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { resolveImageAttachmentAccess, type AdapterRegistrationHandle } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-credentials'
-import type {} from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-attachment'
+import type {} from '@deepseek-ai/dsh-fs'
 import { Config } from './config.js'
 import { createTransport } from '../network/transport.js'
 import { createStore } from '../auth/store.js'
 import { OAuth } from '../auth/oauth.js'
 import { AuthService } from '../auth/service.js'
 import { ChatGPTAdapter, PROVIDER } from '../adapter/index.js'
-import type { AdapterRegistrationHandle } from '@deepseek-ai/dsh-llm'
 import { mountRpc } from './rpc.js'
 
 export { Config }
@@ -22,7 +23,14 @@ export function apply(ctx: Context, config: Config) {
     registration?.replace([PROVIDER])
   })
   ctx.effect(() => () => { auth.dispose(); void transport.close() })
-  adapter = new ChatGPTAdapter(auth, transport.fetch)
+  adapter = new ChatGPTAdapter(auth, transport.fetch, () => {
+    const attachments = ctx.get('attachments')
+    return {
+      attachments,
+      resolveAccess: ref => attachments && resolveImageAttachmentAccess(attachments,
+        hostPath => ctx.get('fs')?.processPathFromHostPath(hostPath), ref),
+    }
+  })
   registration = ctx.llm.registerAdapter([PROVIDER], adapter)
   mountRpc(ctx, auth)
 }

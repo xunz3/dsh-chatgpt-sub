@@ -122,7 +122,7 @@ Node 测试使用模拟 OAuth/JWKS 和本机 loopback 服务，无需真实账�
 
 浏览器测试覆盖设置面板、账户操作、菜单关闭、主题与响应式布局；Host 和 Client 集成测试使用真实 Cordis runtime，验证 Remote 服务的注入与卸载。`dsh-web` 仅在指定 `DSH_WEB_LOG` 时运行，会开始并取消登录，请使用独立 `DSH_HOME` 的未登录实例；`dsh-models` 只读检查模型目录及页面请求稳定性。
 
-当前 adapter 支持文本、工具调用、工具结果、usage 和加密 reasoning 历史续传。图像/文件由 Harness 按文本模型规则投影；不声称支持原生图像输入。Responses 请求强制 `store: false`、`stream: true`；只有 `response.completed` 算成功。系统指令映射为 `developer`，省略此登录通道不支持的 `temperature` 与 `max_output_tokens`（因此宿主的 maxTokens 不作为输出上限生效）。stop sequences 会明确报错；context window 和 reasoning effort 列表来自账户模型目录。
+当前 adapter 支持文本、原生图像输入、工具调用、工具结果、usage 和加密 reasoning 历史续传。支持多图、图文混排、工具结果图片及历史图片追问；模型能力来自账户目录。图片尺寸、预算与真实浏览器验收见[原生图像输入](docs/images.md)。普通文件仍由 Harness 转为路径说明。Responses 请求强制 `store: false`、`stream: true`；只有 `response.completed` 算成功。系统指令映射为 `developer`，省略此登录通道不支持的 `temperature` 与 `max_output_tokens`（因此宿主的 maxTokens 不作为输出上限生效）。stop sequences 会明确报错；context window 和 reasoning effort 列表来自账户模型目录。
 
 ## 依据
 

@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import OpenAI from 'openai'
-import { LlmAdapter, LlmError, ReasoningEffortId, attributionHeaders, type GenerateOptions, type LlmModelInfo, type LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, ReasoningEffortId, attributionHeaders, projectImagesForTextModel, type GenerateOptions, type LlmModelInfo, type LlmResolvedModelInfo, type ModelModality } from '@deepseek-ai/dsh-llm'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { Fetch } from '../network/transport.js'
 import type { AuthService } from '../auth/service.js'
 import { RESOURCE } from '../auth/oauth.js'
 import { buildRequest } from './request.js'
 import { convertStream } from './stream.js'
+import { imageTarget, prepareImages, type ImageServices } from './images.js'
 
 export const PROVIDER = 'chatgpt-sub'
 type Session = Awaited<ReturnType<AuthService['access']>>
@@ -14,6 +16,7 @@ interface CatalogModel {
   slug?: string
   display_name?: string
   context_window?: number
+  input_modalities?: string[]
   default_reasoning_level?: string
   supported_reasoning_levels?: Array<{ effort?: string; description?: string }>
 }
@@ -26,7 +29,10 @@ function modelInfo(model: CatalogModel & { slug: string }): LlmResolvedModelInfo
     return [{ id: ReasoningEffortId(level.effort), name: level.effort, ...(typeof level.description === 'string' ? { description: level.description } : {}) }]
   })
   return {
-    provider: PROVIDER, id: model.slug, name: model.display_name || model.slug, inputModalities: ['text'],
+    provider: PROVIDER, id: model.slug, name: model.display_name || model.slug,
+    // Absent capability metadata means unknown, not text-only. Do not discard
+    // images for new models merely because their catalog omits this field.
+    ...(Array.isArray(model.input_modalities) ? { inputModalities: model.input_modalities.filter((value): value is ModelModality => value === 'text' || value === 'image') } : {}),
     ...(model.context_window && model.context_window > 0 ? { context: { contextWindow: model.context_window } } : {}),
     ...(efforts.length ? { reasoning: {
       efforts,
@@ -37,7 +43,8 @@ function modelInfo(model: CatalogModel & { slug: string }): LlmResolvedModelInfo
 
 export class ChatGPTAdapter extends LlmAdapter {
   private cached?: { accountId: string; expires: number; models: LlmResolvedModelInfo[] }
-  constructor(private auth: AuthService, private fetch: Fetch) { super() }
+  constructor(private auth: AuthService, private fetch: Fetch, private imageServices: () => ImageServices = () => ({})) { super() }
+  override imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef) { return imageTarget(image) }
   clear() { this.cached = undefined }
   override providerInfo(provider: string) { return { id: provider, name: 'ChatGPT plan' } }
   override async listModels(): Promise<LlmModelInfo[]> {
@@ -82,7 +89,11 @@ export class ChatGPTAdapter extends LlmAdapter {
     try {
       const effort = options.reasoningEffort ?? model.reasoning?.defaultEffort
       if (effort && !model.reasoning?.efforts.some(level => level.id === effort)) throw new LlmError('This reasoning effort is not available for the selected ChatGPT model.', 'UNSUPPORTED_REASONING_EFFORT')
-      const request = buildRequest({ ...options, reasoningEffort: effort }, session.accountId)
+      const messages = model.inputModalities && !model.inputModalities.includes('image') ? projectImagesForTextModel(options.messages) : options.messages
+      const projected = { ...options, messages: [...messages], reasoningEffort: effort, signal }
+      const images = await prepareImages(projected, this.imageServices())
+      signal.throwIfAborted()
+      const request = buildRequest(projected, session.accountId, images)
       const events = await client.responses.create(request, {
         signal,
         headers: {
