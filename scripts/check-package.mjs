@@ -17,10 +17,11 @@ assert.equal(pkg.publishConfig.registry, 'https://registry.npmjs.org/')
 const files = new Set(packed.files.map(file => file.path))
 const requireFile = path => assert(files.has(path.replace(/^\.\//, '')), `Missing packed file: ${path}`)
 requireFile('LICENSE')
+requireFile('README.zh-CN.md')
 assert.equal(read('LICENSE'), readFileSync('LICENSE', 'utf8'), 'Packaged license must match the repository')
 for (const path of [pkg.exports['.'].types, pkg.exports['.'].default, pkg.exports['./client'], pkg.exports['./package.json'], pkg.dsh.bundle.patch, 'assets/logo.svg', 'README.md']) requireFile(path)
 for (const path of files) {
-  assert(/^(dist\/|docs\/|assets\/(?:logo\.svg|README\.md)$|package\.json$|README\.md$|cordis\.patch\.yml$|LICENSE(?:\..*)?$)/.test(path), `Unexpected packed file: ${path}`)
+  assert(/^(dist\/|docs\/|assets\/(?:logo\.svg|README\.md)$|package\.json$|README(?:\.zh-CN)?\.md$|cordis\.patch\.yml$|LICENSE(?:\..*)?$)/.test(path), `Unexpected packed file: ${path}`)
   assert(!/(^|\/)(?:\.env(?:\..*)?|node_modules|test-results|\.npmrc)(\/|$)/.test(path), `Private or generated file: ${path}`)
 }
 
