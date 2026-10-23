@@ -15,7 +15,8 @@ test('Models settles without repeated provider invalidation in the installed hos
     if (new URL(request.url()).pathname.startsWith('/api/')) failures.push(request.failure()?.errorText ?? 'Request failed')
   })
   const directory = page.waitForResponse(response => new URL(response.url()).pathname === '/api/llm/listProviders' && response.status() === 200)
-  await page.goto(url)
+  // Wait for initial session navigation before opening a modal it would close.
+  await page.goto(url, { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: 'Account menu', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
   await page.getByRole('button', { name: 'Models', exact: true }).click()

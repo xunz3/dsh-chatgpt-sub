@@ -1,4 +1,7 @@
 export const en = {
+  searchGroup: 'Web search', searchNative: 'OpenAI native (default)', searchHarness: 'Harness tools', searchOff: 'Off',
+  searchNativeDescription: 'GPT can use OpenAI search outside Harness tool approvals and URL rules.', searchHarnessDescription: 'Use the session’s Harness search tools and permissions.', searchOffDescription: 'Do not offer OpenAI or Harness search directly.',
+  searchScope: 'ChatGPT conversations only. Code, MCP and other network tools keep their Harness permissions.', searchLoading: 'Loading search settings…', searchUnavailable: 'Unavailable', searchUnavailableDescription: 'Search settings are unavailable on this host.', searchReadOnly: 'This host’s settings are read-only.', searchSaveFailed: 'Could not save the search mode. The current setting is shown; please try again.',
   accountGroup: 'Account', planGroup: 'Plan & usage',
   manageAccounts: 'Manage', planAllowance: 'Plan usage & remaining', planUnavailable: 'This sign-in connection does not provide a remaining allowance value.', viewPlan: 'View in ChatGPT',
   currentAccount: 'Current account', accountId: 'Account ID', switchNote: 'Switching accounts stops requests in progress. New requests use the selected account.',
@@ -18,6 +21,9 @@ export const en = {
 }
 export type CopyKey = keyof typeof en
 export const zh: Record<CopyKey, string> = {
+  searchGroup: '网页搜索', searchNative: 'OpenAI 原生搜索（默认）', searchHarness: 'Harness 搜索工具', searchOff: '关闭',
+  searchNativeDescription: 'GPT 可调用 OpenAI 搜索，不经过 Harness 的工具审批或 URL 访问规则。', searchHarnessDescription: '使用当前会话的 Harness 搜索工具和权限。', searchOffDescription: '不直接提供 OpenAI 或 Harness 搜索工具。',
+  searchScope: '仅影响 ChatGPT 对话。代码、MCP 等联网工具仍由 Harness 管理权限。', searchLoading: '正在读取搜索设置…', searchUnavailable: '不可用', searchUnavailableDescription: '当前主机未提供搜索设置。', searchReadOnly: '当前主机的设置为只读。', searchSaveFailed: '无法保存搜索模式，现已显示当前设置。请重试。',
   accountGroup: '账户', planGroup: '套餐与用量',
   manageAccounts: '管理', planAllowance: '套餐用量与剩余', planUnavailable: '当前登录接口未提供剩余额度数值。', viewPlan: '在 ChatGPT 查看',
   currentAccount: '当前账户', accountId: '账户标识', switchNote: '切换账户会中止正在进行的请求，后续请求使用所选账户。',

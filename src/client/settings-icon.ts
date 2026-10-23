@@ -1,49 +1,30 @@
+import type { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 import { pluginLogoSvg } from './logo.js'
 
 /**
- * DSH 0.2.1's settings shell hardcodes unknown section icons to a gear.
- * Keep this compatibility layer scoped to our localized nav row. It adds a
- * presentation attribute, never replaces React-owned children, and restores
- * the host completely on disposal. Remove when the host exposes a nav icon slot.
+ * DSH 0.2.1 has no section icon option or DOM section id. Its settings nav
+ * renders every registry entry sorted by order, with no visibility filtering.
+ * Follow that registry rather than observing or rewriting the host DOM. The
+ * row-count guard falls back to host icons if the nav structure diverges.
  */
-export function mountSettingsIcon(label: () => string, doc: Document = document): () => void {
-  const attribute = 'data-cgs-settings-icon'
-  const selector = '[data-shortcut-modal="settings"] nav button'
+export function mountSettingsIcon(slots: Pick<SlotCore, 'entries' | 'subscribe'>, doc: Document = document): () => void {
   const style = doc.createElement('style')
   const url = `url("data:image/svg+xml,${encodeURIComponent(pluginLogoSvg)}")`
-  style.textContent = `
-    ${selector}[${attribute}] > svg { display: none; }
-    ${selector}[${attribute}]::before {
-      content: ''; display: block; width: 18px; height: 18px; flex: 0 0 18px;
-      background: currentColor; mask: ${url} center / contain no-repeat;
-      -webkit-mask: ${url} center / contain no-repeat;
-    }
-  `
-  doc.head.append(style)
-  const marked = new Set<Element>()
   const sync = () => {
-    for (const node of marked) {
-      if (!node.isConnected || node.textContent?.trim() !== label()) {
-        node.removeAttribute(attribute)
-        marked.delete(node)
+    const entries = [...slots.entries('settings.section')].sort((a, b) => (a.options.order ?? 0) - (b.options.order ?? 0))
+    const index = entries.findIndex(entry => entry.options.id === 'chatgpt-sub')
+    const row = `[data-shortcut-modal="settings"] > nav > div:last-child:has(> button:nth-child(${entries.length}):last-child) > button:nth-child(${index + 1})`
+    style.textContent = index < 0 ? '' : `
+      ${row} > svg { display: none; }
+      ${row}::before {
+        content: ''; display: block; width: 18px; height: 18px; flex: 0 0 18px;
+        background: currentColor; mask: ${url} center / contain no-repeat;
+        -webkit-mask: ${url} center / contain no-repeat;
       }
-    }
-    for (const node of doc.querySelectorAll(selector)) {
-      if (node.textContent?.trim() === label()) {
-        node.setAttribute(attribute, '')
-        marked.add(node)
-      }
-    }
+    `
   }
-  // Only child/text changes: our attribute writes cannot retrigger the observer.
-  const Observer = doc.defaultView?.MutationObserver ?? MutationObserver
-  const observer = new Observer(sync)
-  observer.observe(doc.body, { childList: true, subtree: true, characterData: true })
+  const unsubscribe = slots.subscribe('settings.section', sync)
   sync()
-  return () => {
-    observer.disconnect()
-    for (const node of marked) node.removeAttribute(attribute)
-    marked.clear()
-    style.remove()
-  }
+  doc.head.append(style)
+  return () => { unsubscribe(); style.remove() }
 }

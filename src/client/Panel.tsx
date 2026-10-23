@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { PluginApi, Status } from '../shared/types.js'
+import type { SearchConfig } from '../shared/search.js'
 import type { CopyKey } from './messages.js'
 import { PluginLogo } from './PluginLogo.js'
 import { css } from './styles.js'
+import { SearchSettings } from './SearchSettings.js'
 
 export type Translate = (key: CopyKey) => string
 const usage = 'https://chatgpt.com/settings/usage'
-export function Panel({ api, t }: { api: PluginApi; t: Translate }) {
+export function Panel({ api, searchForm, t }: { api: PluginApi; searchForm: ConfigForm<SearchConfig>; t: Translate }) {
   const [status, setStatus] = useState<Status>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -100,6 +103,7 @@ export function Panel({ api, t }: { api: PluginApi; t: Translate }) {
         <div className="cgs-plan"><span title={t('planUnavailable')}>{t('planAllowance')}</span><a href={usage} target="_blank" rel="noreferrer">{t('viewPlan')} ↗</a></div>
       </section>}
       {status.notice && <p role="status">{status.notice} <a href={usage} target="_blank" rel="noreferrer">{t('manage')}</a></p>}
+      <SearchSettings form={searchForm} t={t} />
       <details className="cgs-network"><summary><SectionIcon kind="network" />{t('network')}</summary><p>{t(status.proxyMode)}</p><p>{t('browserProxy')}</p><p>{t('remote')}</p>{status.flow.callback && <code>{status.flow.callback}</code>}</details>
     </>}
     {(error || status?.flow.error) && <p className="cgs-error" role="alert">{error || status?.flow.error}</p>}

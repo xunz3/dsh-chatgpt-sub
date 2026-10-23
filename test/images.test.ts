@@ -3,6 +3,7 @@ import test from 'node:test'
 import { AttachmentId, ImageVariantId, type ImageAttachmentRef, type RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import { createAssistantMessage, createMessage, createToolResultMessage, LlmError, ToolCallId, type GenerateOptions, type ImageBlock } from '@deepseek-ai/dsh-llm'
 import { imageTarget, prepareImages, type ImageServices } from '../src/adapter/images.js'
+import { resolveImagePolicy } from '../src/adapter/image-policy.js'
 import { buildRequest } from '../src/adapter/request.js'
 import { ChatGPTAdapter } from '../src/adapter/index.js'
 import { AuthService } from '../src/auth/service.js'
@@ -40,7 +41,7 @@ test('mixed text and images retain order, verified MIME/bytes, handles and dupli
   assert.ok('content' in message && Array.isArray(message.content))
   const content = message.content
   assert.deepEqual(content.map(block => block.type), ['input_text', 'input_text', 'input_image', 'input_text', 'input_text', 'input_image', 'input_text'])
-  assert.deepEqual(content[2], { type: 'input_image', detail: 'auto', image_url: 'data:image/webp;base64,AQID' })
+  assert.deepEqual(content[2], { type: 'input_image', detail: 'high', image_url: 'data:image/webp;base64,AQID' })
   assert.deepEqual(content[5], content[2])
   assert.match(JSON.stringify(content[1]), /first.png/)
   assert.match(JSON.stringify(content[1]), /400.*300/)
@@ -92,8 +93,56 @@ test('history replay resends retained images with encrypted reasoning and no per
 test('request projection shares the coordinate target and does not upscale small images', () => {
   assert.deepEqual(imageTarget(ref), { width: 800, height: 600, maxBytes: 1024 * 1024 })
   const target = imageTarget({ ...ref, width: 8192, height: 4096 })
-  assert.ok(target.width * target.height <= 2048 * 2048)
+  assert.ok(Math.max(target.width, target.height) <= 2048)
+  assert.ok(Math.ceil(target.width / 32) * Math.ceil(target.height / 32) <= 2500)
   assert.ok(Math.abs(target.width / target.height - 2) < 0.01)
+})
+
+test('image quality uses original only when the account catalog explicitly advertises it', () => {
+  assert.equal(resolveImagePolicy('auto').detail, 'high')
+  assert.equal(resolveImagePolicy('auto', false).detail, 'high')
+  assert.equal(resolveImagePolicy('auto', true).detail, 'original')
+  assert.equal(resolveImagePolicy('balanced', true).detail, 'high')
+  assert.equal(resolveImagePolicy('original', true).detail, 'original')
+  assert.equal(resolveImagePolicy('original', false).requiresOriginal, true)
+  assert.equal(resolveImagePolicy('auto', false).requiresOriginal, false)
+})
+
+test('original preserves more detail without upscaling or exceeding patch and dimension budgets', () => {
+  const balanced = resolveImagePolicy('balanced', true)
+  const original = resolveImagePolicy('original', true)
+  const screenshot = { ...ref, width: 3840, height: 2160 }
+  assert.deepEqual(imageTarget(screenshot, original), { width: 3840, height: 2160, maxBytes: 8 * 1024 * 1024 })
+  assert.ok(imageTarget(screenshot, balanced).width < screenshot.width)
+  for (const policy of [balanced, original]) {
+    for (const [width, height] of [[1, 1], [31, 33], [800, 600], [3201, 3201], [6000, 6000], [50_000, 80], [800, 50_000], [65_535, 65_535]]) {
+      const target = imageTarget({ ...ref, width: width!, height: height! }, policy)
+      assert.ok(target.width <= width! && target.height <= height!, 'never upscale')
+      assert.ok(Math.max(target.width, target.height) <= policy.maxDimension)
+      assert.ok(Math.ceil(target.width / 32) * Math.ceil(target.height / 32) <= policy.maxPatches)
+      assert.ok(target.width >= 1 && target.height >= 1)
+      assert.ok(Math.abs(target.height - target.width * height! / width!) <= Math.max(1, height! / width!), 'preserve aspect ratio within pixel rounding')
+    }
+  }
+})
+
+test('original preparation uses the shared target and leaves text or offloaded-only calls usable', async () => {
+  const policy = resolveImagePolicy('auto', true)
+  const first = image({ ...ref, width: 3840, height: 2160 })
+  const prepared = await prepareImages(options([first]), { attachments: { async readImageRequest(ref, target) {
+    assert.deepEqual(target, imageTarget(ref, policy))
+    return { ...version(ref), width: target.width, height: target.height }
+  } } }, policy)
+  assert.equal(prepared.get(first)?.[1]?.type, 'input_image')
+  assert.match(JSON.stringify(prepared.get(first)), /"detail":"original"/)
+  assert.match(JSON.stringify(prepared.get(first)), /3840.*2160/)
+  const unavailable = resolveImagePolicy('original')
+  const neverRead: ImageServices = { attachments: { async readImageRequest() { assert.fail('unsupported detail must fail before reading') } } }
+  await assert.rejects(prepareImages(options([first]), neverRead, unavailable), (error: unknown) => error instanceof LlmError && error.code === 'UNSUPPORTED_IMAGE_DETAIL')
+  assert.equal((await prepareImages(options([{ type: 'text', text: 'Text still works' }]), neverRead, unavailable)).size, 0)
+  const offloaded: ImageBlock = { ...first, offloaded: true }
+  const placeholders = await prepareImages(options([offloaded]), neverRead, unavailable)
+  assert.deepEqual(placeholders.get(offloaded)?.map(block => block.type), ['input_text'])
 })
 
 test('image budgets count repeated wire occurrences and actual encoded bytes', async () => {

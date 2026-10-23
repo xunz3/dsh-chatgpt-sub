@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ReasoningEffortId, type GenerateOptions, type StreamChunk, type MessageId, type TokenUsage } from '@deepseek-ai/dsh-llm'
+import { EMPTY_RESPONSE_CODE, LlmError, ReasoningEffortId, resolveRetryPolicy, type GenerateOptions, type StreamChunk, type MessageId, type TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { ResponseStreamEvent } from 'openai/resources/responses/responses'
 import { buildRequest } from '../src/adapter/request.js'
 import { convertStream } from '../src/adapter/stream.js'
@@ -9,6 +9,7 @@ import { AuthService } from '../src/auth/service.js'
 import { OAuth, SCOPES } from '../src/auth/oauth.js'
 import { memoryStore } from './helpers.js'
 import type { Fetch } from '../src/network/transport.js'
+import { ChatGPTRequestError } from '../src/adapter/errors.js'
 
 async function* events(values: unknown[]) { for (const value of values) yield value as ResponseStreamEvent }
 const completed = { type: 'response.completed', response: { status: 'completed', output: [{ type: 'reasoning', id: 'reason', encrypted_content: 'opaque', summary: [] }], usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120, input_tokens_details: { cached_tokens: 30 }, output_tokens_details: { reasoning_tokens: 5 } } } }
@@ -33,6 +34,75 @@ test('partial text followed by EOF, incomplete, or usage failure never succeeds'
     await assert.rejects(async () => { for await (const chunk of stream) chunks.push(chunk) })
     assert.equal(chunks.some(c => c.type === 'finish'), false)
   }
+})
+test('EOF before output permits Harness retry and retains request diagnostics', async () => {
+  const policy = resolveRetryPolicy(undefined, 'test')
+  for (const values of [[], [
+    { type: 'response.created', response: { output: [] } },
+    { type: 'response.in_progress', response: { output: [] } },
+    { type: 'response.output_text.delta', item_id: 'm', content_index: 0, delta: '' },
+  ]]) {
+    await assert.rejects(async () => { for await (const _chunk of convertStream(events(values), 'one', { phase: 'stream', headers: new Headers({ 'x-request-id': 'req_empty' }) })) {} }, error => {
+      assert.ok(error instanceof ChatGPTRequestError)
+      assert.equal(error.code, EMPTY_RESPONSE_CODE)
+      assert.equal(error.failure.requestId, 'req_empty')
+      assert.match(error.message, /phase stream/)
+      assert.ok(policy.mode === 'normal' && policy.retryableCodes.includes(error.code))
+      return true
+    })
+  }
+})
+test('EOF after text, reasoning, opaque output or a hosted action never permits default retry', async () => {
+  const policy = resolveRetryPolicy(undefined, 'test')
+  const partial = [
+    { type: 'response.output_text.delta', item_id: 'm', content_index: 0, delta: 'Partial' },
+    { type: 'response.reasoning_summary_text.delta', item_id: 'r', summary_index: 0, delta: 'Thinking' },
+    { type: 'response.refusal.delta', item_id: 'm', content_index: 0, delta: 'Cannot' },
+    { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'r', encrypted_content: 'opaque', summary: [] } },
+    { type: 'response.output_item.added', output_index: 0, item: { type: 'message', id: 'm', role: 'assistant', content: [], status: 'in_progress' } },
+    { type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', id: 'tool', call_id: 'call', name: 'read_file', arguments: '' } },
+    { type: 'response.web_search_call.in_progress', item_id: 'search' },
+    { type: 'response.output_item.done', output_index: 0, item: { type: 'web_search_call', id: 'search', status: 'completed', action: { type: 'search', query: 'Query' } } },
+  ]
+  for (const value of partial) {
+    await assert.rejects(async () => { for await (const _chunk of convertStream(events([value]))) {} }, error => {
+      assert.ok(error instanceof LlmError)
+      assert.equal(error.code, 'INTERRUPTED_STREAM', value.type)
+      assert.ok(policy.mode === 'normal' && !policy.retryableCodes.includes(error.code))
+      return true
+    })
+  }
+})
+test('a transient stream exception is retryable only before output, with safe diagnostics preserved', async () => {
+  for (const partial of [undefined, { type: 'response.output_text.delta', item_id: 'm', content_index: 0, delta: 'Partial' }, { type: 'response.web_search_call.in_progress', item_id: 'search' }]) {
+    async function* broken() {
+      if (partial) yield partial as ResponseStreamEvent
+      throw new TypeError('private transport details', { cause: Object.assign(new Error('private socket details'), { code: 'ECONNRESET' }) })
+    }
+    await assert.rejects(async () => { for await (const _chunk of convertStream(broken(), undefined, { phase: 'stream', headers: new Headers({ 'x-request-id': 'req_broken', 'retry-after': '2' }) })) {} }, error => {
+      assert.ok(error instanceof LlmError)
+      assert.equal(error.code, partial ? 'INTERRUPTED_STREAM' : 'TRANSPORT')
+      assert.equal(error.failure.requestId, 'req_broken')
+      assert.equal(error.failure.providerRetryAfterMs, 2000)
+      assert.match(error.message, /phase stream/)
+      assert.match(error.message, /ECONNRESET/)
+      assert.equal(JSON.stringify(error).includes('private'), false)
+      assert.equal(error.cause, undefined)
+      return true
+    })
+  }
+})
+test('stream failures preserve nonretryable codes and cancellation while suppressing retries after partial output', async () => {
+  const first = { type: 'response.output_text.delta', item_id: 'm', content_index: 0, delta: 'Partial' }
+  for (const [providerCode, expected] of [['server_error', 'INTERRUPTED_STREAM'], ['rate_limit_exceeded', 'INTERRUPTED_STREAM'], ['subscription_sharing_usage_limit_exceeded', 'QUOTA'], ['content_filter', 'CONTENT_FILTER']] as const) {
+    await assert.rejects(async () => { for await (const _chunk of convertStream(events([first, { type: 'response.failed', response: { error: { code: providerCode } } }]))) {} }, error => error instanceof LlmError && error.code === expected)
+  }
+  const abort = new DOMException('Cancelled', 'AbortError')
+  async function* cancelled() { yield first as ResponseStreamEvent; throw abort }
+  await assert.rejects(async () => { for await (const _chunk of convertStream(cancelled())) {} }, error => error === abort)
+  const chunks: StreamChunk[] = []
+  for await (const chunk of convertStream(events([{ type: 'response.completed', response: { status: 'completed', output: [] } }]))) chunks.push(chunk)
+  assert.equal(chunks.at(-1)?.type, 'finish', 'an explicit completed response retains its existing terminal behavior')
 })
 test('GPT-5.6 and GPT-6 cache writes are disjoint from reads and ordinary input', async () => {
   for (const details of [{ cached_tokens: 0, cache_write_tokens: 100 }, { cached_tokens: 70, cache_write_tokens: 20 }]) {
@@ -96,7 +166,7 @@ test('request uses public Responses stateless contract and preserves tool IDs', 
   } as GenerateOptions
   const request = buildRequest(options)
   assert.equal(request.stream, true); assert.equal(request.store, false)
-  assert.deepEqual(request.include, ['reasoning.encrypted_content'])
+  assert.deepEqual(request.include, ['reasoning.encrypted_content', 'web_search_call.action.sources', 'web_search_call.results'])
   assert.ok(Array.isArray(request.input))
   assert.equal(request.input.at(-1)?.type, 'function_call_output')
   assert.throws(() => buildRequest({ ...options, stop: ['END'] }), /stop sequences/)
@@ -142,7 +212,7 @@ test('switching models drops tool item IDs but preserves call linkage and encryp
   } as GenerateOptions
   const request = buildRequest(options)
   assert.ok(Array.isArray(request.input))
-  assert.deepEqual(request.input[1], { type: 'function_call', call_id: 'call', name: 'tool', arguments: '{}' })
+  assert.deepEqual(request.input[1], { type: 'function_call', namespace: 'harness', call_id: 'call', name: 'tool', arguments: '{}' })
   assert.deepEqual(request.input[0], { type: 'reasoning', id: 'reason', encrypted_content: 'opaque', summary: [] })
 })
 

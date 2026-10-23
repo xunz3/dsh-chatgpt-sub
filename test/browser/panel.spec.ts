@@ -1,17 +1,37 @@
 import { test, expect, type Page } from '@playwright/test'
 import { build } from 'esbuild'
 import type { Status } from '../../src/shared/types.js'
+import type { SearchConfig } from '../../src/shared/search.js'
 
 const signedOut: Status = { accounts: [], flow: { phase: 'idle' }, proxyMode: 'inherit' }
 const connected: Status = { accounts: [{ id: 'account-first', email: 'reader@example.com', connected: true, sharing: true }, { id: 'account-second', email: 'reader@example.com', connected: false, sharing: false }], activeId: 'account-first', flow: { phase: 'done' }, proxyMode: 'inherit' }
 
-async function mount(page: Page, state: Status, dark = false, zh = false) {
+function searchFormSource(config: SearchConfig = {}, writable = true, refuse = false) {
+  return `
+    let searchSnapshot = { status: 'ready', value: ${JSON.stringify(config)}, writable: ${writable}, revision: 0 };
+    const searchListeners = new Set(); window.searchWrites = [];
+    const searchForm = {
+      getSnapshot: () => searchSnapshot,
+      subscribe: listener => { searchListeners.add(listener); return () => searchListeners.delete(listener) },
+      set: async (field, value) => {
+        window.searchWrites.push({ field, value });
+        if (${refuse}) return false;
+        searchSnapshot = { ...searchSnapshot, value: { ...searchSnapshot.value, [field]: value }, revision: searchSnapshot.revision + 1 };
+        for (const listener of searchListeners) listener();
+        return true;
+      },
+    };
+  `
+}
+
+async function mount(page: Page, state: Status, dark = false, zh = false, config: SearchConfig = {}, writable = true, refuse = false) {
   await page.route('http://fixture.local/', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><main id="root"></main></body></html>' }))
   await page.goto('http://fixture.local/')
   await page.addStyleTag({ content: `body{margin:0;padding:32px;font-family:system-ui;background:${dark ? '#18191b' : '#fff'};color:${dark ? '#eee' : '#202124'}}:root{--dsw-alias-bg-base:${dark ? '#18191b' : '#fff'};--dsw-alias-bg-layer-1:${dark ? '#222326' : '#f7f7f7'};--dsw-alias-label-primary:${dark ? '#eee' : '#202124'};--dsw-alias-label-secondary:${dark ? '#a3a4aa' : '#65676b'};--dsw-alias-border-l1:${dark ? '#36373b' : '#ddd'};--dsw-alias-border-l2:${dark ? '#45464a' : '#ccc'}}@media(max-width:480px){body{padding:20px}}` })
   const result = await build({ stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
     import React from 'react'; import { createRoot } from 'react-dom/client';
     import { Panel } from './src/client/Panel.tsx'; import { en, zh } from './src/client/messages.ts';
+    ${searchFormSource(config, writable, refuse)}
     let state = ${JSON.stringify(state)};
     const api = {
       status: async()=>structuredClone(state),
@@ -19,7 +39,7 @@ async function mount(page: Page, state: Status, dark = false, zh = false) {
       cancel: async()=>{state.flow={phase:'idle'};return structuredClone(state)},
       select: async(id)=>{state.activeId=id;return structuredClone(state)},
       logout: async(id)=>{const a=state.accounts.find(a=>a.id===id);a.connected=false;a.sharing=false;return structuredClone(state)},
-    }; createRoot(document.getElementById('root')).render(<Panel api={api} t={key=>${zh ? 'zh' : 'en'}[key]}/>);
+    }; createRoot(document.getElementById('root')).render(<Panel api={api} searchForm={searchForm} t={key=>${zh ? 'zh' : 'en'}[key]}/>);
   ` }, bundle: true, platform: 'browser', format: 'iife', write: false })
   await page.addScriptTag({ content: result.outputFiles[0].text })
 }
@@ -45,12 +65,12 @@ test('first-use modal, account switch and sign-out never expose credentials', as
   await expect(page.getByRole('link', { name: 'View in ChatGPT' })).toHaveAttribute('href', 'https://chatgpt.com/settings/usage')
   await page.getByText('Manage', { exact: true }).click()
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('combobox')).not.toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Switch account' })).not.toBeVisible()
   await expect(page.getByText('Manage', { exact: true })).toBeFocused()
   await page.getByText('Manage', { exact: true }).click()
-  await page.getByRole('combobox').selectOption('account-second')
+  await page.getByRole('combobox', { name: 'Switch account' }).selectOption('account-second')
   await expect(page.getByRole('button', { name: 'Continue with ChatGPT' })).toBeVisible()
-  await page.getByRole('combobox').selectOption('account-first')
+  await page.getByRole('combobox', { name: 'Switch account' }).selectOption('account-first')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
   await expect(page.getByText('Not connected', { exact: true })).toBeVisible()
@@ -87,14 +107,15 @@ test('a pending status from the previous connection cannot overwrite the new acc
   const result = await build({ stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
     import React from 'react'; import { createRoot } from 'react-dom/client';
     import { Panel } from './src/client/Panel.tsx'; import { en } from './src/client/messages.ts';
+    ${searchFormSource()}
     localStorage.setItem('dsh-chatgpt-sub:welcome', '1');
     const state = ${JSON.stringify(connected)};
     const root = createRoot(document.getElementById('root')); const t = key => en[key];
     window.pollCalls = 0;
     const oldApi = { status: () => { window.pollCalls++; return new Promise(resolve => { window.resolveOld = () => resolve(state) }) } };
     const newApi = { status: async () => ({ ...state, activeId: 'account-second' }) };
-    window.swapConnection = () => root.render(<Panel api={newApi} t={t}/>);
-    root.render(<Panel api={oldApi} t={t}/>);
+    window.swapConnection = () => root.render(<Panel api={newApi} searchForm={searchForm} t={t}/>);
+    root.render(<Panel api={oldApi} searchForm={searchForm} t={t}/>);
   ` }, bundle: true, platform: 'browser', format: 'iife', write: false })
   await page.addScriptTag({ content: result.outputFiles[0].text })
   await expect.poll(() => page.evaluate(() => typeof (window as any).resolveOld)).toBe('function')
@@ -114,7 +135,7 @@ test('account menu dismisses outside and on focus leave, but preserves internal 
   const menu = page.locator('.cgs-account-menu')
   await trigger.click()
   await expect(menu).toHaveAttribute('open', '')
-  await page.getByRole('combobox').focus()
+  await page.getByRole('combobox', { name: 'Switch account' }).focus()
   await expect(menu).toHaveAttribute('open', '')
   await page.getByRole('button', { name: 'Refresh status' }).click()
   await expect(menu).toHaveAttribute('open', '')
@@ -124,11 +145,37 @@ test('account menu dismisses outside and on focus leave, but preserves internal 
   await page.getByRole('link', { name: 'View in ChatGPT' }).focus()
   await expect(menu).not.toHaveAttribute('open', '')
   await trigger.click()
-  await page.getByRole('combobox').focus()
+  await page.getByRole('combobox', { name: 'Switch account' }).focus()
   await page.keyboard.press('Escape')
   await expect(menu).not.toHaveAttribute('open', '')
   await expect(trigger).toBeFocused()
   await trigger.click()
   await trigger.click()
   await expect(menu).not.toHaveAttribute('open', '')
+})
+
+test('search has an explicit provider-scoped mode and writes only the selected field', async ({ page }) => {
+  await mount(page, signedOut)
+  const select = page.getByRole('combobox', { name: 'Web search' })
+  await expect(select).toHaveValue('native')
+  await expect(select.locator('option')).toHaveText(['OpenAI native (default)', 'Harness tools', 'Off'])
+  await expect(page.getByText('GPT can use OpenAI search outside Harness tool approvals and URL rules.')).toBeVisible()
+  await expect(page.getByText('ChatGPT conversations only. Code, MCP and other network tools keep their Harness permissions.')).toBeVisible()
+  await select.selectOption('harness')
+  await expect(select).toHaveValue('harness')
+  await expect(page.getByText('Use the session’s Harness search tools and permissions.')).toBeVisible()
+  await select.selectOption('off')
+  await expect(page.getByText('Do not offer OpenAI or Harness search directly.')).toBeVisible()
+  expect(await page.evaluate(() => (window as any).searchWrites)).toEqual([{ field: 'searchMode', value: 'harness' }, { field: 'searchMode', value: 'off' }])
+})
+
+test('read-only settings cannot mutate and rejected writes keep the accepted mode', async ({ page }) => {
+  await mount(page, signedOut, false, false, { searchMode: 'harness' }, false)
+  const select = page.getByRole('combobox', { name: 'Web search' })
+  await expect(select).toBeDisabled()
+  await expect(page.getByText('This host’s settings are read-only.')).toBeVisible()
+  await mount(page, signedOut, false, false, { searchMode: 'harness' }, true, true)
+  await select.selectOption('native')
+  await expect(select).toHaveValue('harness')
+  await expect(page.getByRole('alert')).toContainText('Could not save the search mode')
 })

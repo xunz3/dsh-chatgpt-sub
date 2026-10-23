@@ -189,3 +189,28 @@ test('OpenID discovery receives and honors cancellation', async () => {
   await assert.rejects(pending)
   assert.equal(received?.aborted, true)
 })
+
+test('explicitly enabling a missing plan grant requests consent, ordinary sign-in does not', async () => {
+  const f = await fixture()
+  try {
+    const first = await f.begin()
+    assert.equal(first.url.searchParams.get('prompt'), null)
+    await f.auth.cancel()
+    const id = await f.connect()
+    const ordinary = await f.begin(id)
+    assert.equal(ordinary.url.searchParams.get('prompt'), null)
+    await f.auth.cancel()
+    await f.store.update(s => { s.accounts[0].tokens!.scopes = ['openid', 'profile', 'email'] })
+    assert.equal((await f.auth.status()).accounts[0].connected, true)
+    assert.equal((await f.auth.status()).accounts[0].sharing, false)
+    await assert.rejects(f.auth.access(), /plan_permission_required/)
+    const enable = await f.begin(id)
+    assert.equal(enable.url.searchParams.get('prompt'), 'consent')
+    assert.equal(enable.url.searchParams.get('force_reconsent'), null)
+    assert.equal(enable.url.searchParams.get('client_id'), 'client-test')
+    assert.equal(enable.url.searchParams.get('scope'), SCOPES)
+    await f.auth.cancel()
+    await f.auth.logout(id)
+    assert.equal((await f.begin(id)).url.searchParams.get('prompt'), null)
+  } finally { f.auth.dispose() }
+})

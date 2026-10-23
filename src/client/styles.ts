@@ -31,6 +31,11 @@ export const css = `
 .cgs-plan a{text-decoration:none}
 .cgs-plan a:hover{text-decoration:underline}
 .cgs-plan-section{padding:20px 0;border-top:.5px solid var(--dsw-alias-border-l2,#e5e5e5)}
+.cgs-search-section{padding:20px 0;border-top:.5px solid var(--dsw-alias-border-l2,#e5e5e5)}
+.cgs-search-row{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.cgs-search-label{display:flex;align-items:center;gap:8px;font-weight:600}
+.cgs-search-row select{width:auto;max-width:60%;font-size:13px}
+.cgs-search-section .cgs-note{margin:8px 0 0}
 .cgs-network>summary{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary,#202124);font-size:14px;font-weight:600}
 .cgs-network>summary:after{margin-left:auto}
 .cgs-network{border-top:.5px solid var(--dsw-alias-border-l1,#e5e5e5);padding-top:16px;font-size:12px;color:var(--dsw-alias-label-secondary,#65676b)}
@@ -50,5 +55,7 @@ export const css = `
 .cgs-welcome::backdrop{background:rgba(0,0,0,.35)}
 .cgs-welcome button{margin-left:14px}
 @media(max-width:480px){.cgs{padding:4px 0}
+.cgs-search-row{align-items:stretch;flex-direction:column;gap:10px}
+.cgs-search-row select{width:100%;max-width:none}
 .cgs button{min-height:36px}}
 `

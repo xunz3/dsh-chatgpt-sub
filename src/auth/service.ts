@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import type { Config } from '../host/config.js'
 import type { PluginApi, Status } from '../shared/types.js'
 import type { Store } from './store.js'
-import { OAuth, OAuthError, random } from './oauth.js'
+import { OAuth, OAuthError, hasPlanPermission, random, terminalRefreshError } from './oauth.js'
 import { listenCallback } from './callback.js'
 
 export class AuthService implements PluginApi {
@@ -16,7 +16,7 @@ export class AuthService implements PluginApi {
   async status(): Promise<Status> {
     const state = await this.store.read()
     return { activeId: state.activeId, proxyMode: this.config.proxyMode, flow: { ...this.flow }, notice: this.notice,
-      accounts: state.accounts.map(a => ({ id: a.id, email: a.email, connected: !!a.tokens, sharing: !!a.tokens?.scopes.includes('chatgpt.tokens.use.direct') })) }
+      accounts: state.accounts.map(a => ({ id: a.id, email: a.email, connected: !!a.tokens, sharing: !!a.tokens && hasPlanPermission(a.tokens) })) }
   }
   async login(accountId?: string) {
     this.lifetime.signal.throwIfAborted()
@@ -36,7 +36,10 @@ export class AuthService implements PluginApi {
       const callbackListener = listener
       signal.throwIfAborted()
       this.notice = undefined
-      this.flow = { phase: 'pending', url: this.oauth.authorize(state.hostId, listener.redirectUri, csrf, nonce, verifier, clientId), callback: listener.redirectUri }
+      // A user-initiated reconnect may enable a previously declined grant. Do
+      // not force consent for ordinary sign-in or transient inference failures.
+      const consent = !!account?.tokens && !hasPlanPermission(account.tokens)
+      this.flow = { phase: 'pending', url: this.oauth.authorize(state.hostId, listener.redirectUri, csrf, nonce, verifier, clientId, consent), callback: listener.redirectUri }
       attempt.task = (async () => {
         try {
           const callback = await callbackListener.result
@@ -82,6 +85,7 @@ export class AuthService implements PluginApi {
   async select(accountId: string) {
     await this.cancel()
     await this.store.update(s => { if (!s.accounts.some(a => a.id === accountId)) throw new Error('Unknown ChatGPT account.'); s.activeId = accountId })
+    this.notice = undefined
     this.invalidate()
     return this.status()
   }
@@ -102,22 +106,41 @@ export class AuthService implements PluginApi {
     const requestSignal = AbortSignal.any([this.requests.signal, this.lifetime.signal, ...(signal ? [signal] : [])])
     let access = ''
     let failure: unknown
+    let invalidateGrant = false
+    let lostPermission = false
     let id = ''
     await this.store.update(async s => {
       requestSignal.throwIfAborted()
       const account = s.accounts.find(a => a.id === s.activeId)
       if (!account?.tokens) throw new OAuthError('login_required')
       if (account.tokens.expiresAt < Date.now() + 60_000) {
-        try { account.tokens = await this.oauth.refresh(account, requestSignal) }
+        try {
+          const tokens = await this.oauth.refresh(account, requestSignal)
+          requestSignal.throwIfAborted()
+          lostPermission = hasPlanPermission(account.tokens) && !hasPlanPermission(tokens)
+          account.tokens = tokens
+        }
         catch (error) {
-          if (error instanceof OAuthError && ['invalid_grant', 'login_required', 'identity_changed'].includes(error.code)) { delete account.tokens; failure = error; return }
+          requestSignal.throwIfAborted()
+          if (error instanceof OAuthError && terminalRefreshError(error)) { delete account.tokens; failure = error; invalidateGrant = true; return }
           throw error
         }
       }
-      if (!account.tokens.scopes.includes('chatgpt.tokens.use.direct') || !account.tokens.scopes.includes('resource.invoke')) throw new OAuthError('plan_permission_required')
+      if (!hasPlanPermission(account.tokens)) {
+        // Commit a rotated refresh token even when its new grant no longer
+        // permits inference. Throwing inside update would roll rotation back.
+        failure = new OAuthError('plan_permission_required')
+        return
+      }
       access = account.tokens.access; id = account.id
     })
-    if (failure) throw failure
+    if (failure) {
+      this.notice = invalidateGrant
+        ? 'ChatGPT authorization expired or was revoked. Reconnect this account in Settings → ChatGPT.'
+        : 'ChatGPT plan usage is disabled. Enable it for this account in Settings → ChatGPT.'
+      if (invalidateGrant || lostPermission) this.invalidate()
+      throw failure
+    }
     requestSignal.throwIfAborted()
     return { token: access, accountId: id, signal: requestSignal }
   }

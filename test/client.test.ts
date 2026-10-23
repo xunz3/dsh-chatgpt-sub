@@ -33,8 +33,15 @@ test('Client entry injects its dynamically mounted Remote namespace before regis
     register() { translated++; return () => { translated-- } }
     bind() { return () => 'ChatGPT' }
   }
+  class ConfigForms extends Service {
+    constructor(ctx: Context) { super(ctx, 'configForms') }
+    get(namespace: string) {
+      assert.equal(namespace, 'chatgpt-sub')
+      return {}
+    }
+  }
   try {
-    await Promise.all([ctx.plugin(Remote), ctx.plugin(Slots), ctx.plugin(Locale)])
+    await Promise.all([ctx.plugin(Remote), ctx.plugin(Slots), ctx.plugin(Locale), ctx.plugin(ConfigForms)])
     const plugin = ctx.plugin(clientPlugin)
     await plugin.await()
     assert.equal(registered, 1)

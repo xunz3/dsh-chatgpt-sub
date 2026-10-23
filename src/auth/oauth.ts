@@ -7,7 +7,26 @@ export const ISSUER = 'https://auth.openai.com'
 export const RESOURCE = 'https://api.openai.com/v1'
 export const SCOPES = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct'
 export const random = () => randomBytes(32).toString('base64url')
-export class OAuthError extends Error { constructor(public code: string) { super(`ChatGPT authorization failed (${code}). Please reconnect.`) } }
+export class OAuthError extends Error {
+  readonly headers?: Headers
+  constructor(readonly code: string, readonly status?: number, headers?: Headers) {
+    super(code === 'invalid_client'
+      ? `ChatGPT client registration is invalid (${code}). Check the integration configuration.`
+      : code === 'plan_permission_required'
+        ? `ChatGPT plan usage is disabled (${code}). Enable it in Settings → ChatGPT.`
+        : `ChatGPT authorization failed (${code}). ${terminalRefreshError({ code }) ? 'Please reconnect.' : 'Please try again or check the integration settings.'}`)
+    if (headers) {
+      this.headers = new Headers()
+      for (const name of ['x-request-id', 'retry-after', 'retry-after-ms']) {
+        const value = headers.get(name)
+        if (value) this.headers.set(name, value)
+      }
+    }
+  }
+}
+const terminalRefreshCodes = new Set(['invalid_grant', 'invalid_refresh_token', 'token_expired', 'refresh_token_expired', 'refresh_token_invalidated', 'refresh_token_reused', 'login_required', 'identity_changed'])
+export const terminalRefreshError = (error: { code: string }) => terminalRefreshCodes.has(error.code)
+export const hasPlanPermission = (tokens: Tokens) => ['chatgpt.tokens.use.direct', 'resource.invoke'].every(scope => tokens.scopes.includes(scope))
 export class OAuth {
   constructor(private readonly fetch: Fetch) {}
   private metadata?: { issuer: string; jwks_uri: string; revocation_endpoint?: string }
@@ -24,17 +43,25 @@ export class OAuth {
   }
   private async json(url: string, init?: RequestInit): Promise<Record<string, unknown>> {
     const response = await this.fetch(url, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000) })
-    const data = await response.json() as Record<string, unknown>
-    if (!response.ok) throw new OAuthError(typeof data.error === 'string' && /^[a-z_]+$/.test(data.error) ? data.error : `http_${response.status}`)
-    return data
+    let data: unknown
+    try { data = await response.json() } catch { /* Infrastructure errors may return HTML rather than OAuth JSON. */ }
+    const record = data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : undefined
+    if (!response.ok) {
+      const error = record?.error
+      const code = typeof error === 'string' ? error : error && typeof error === 'object' ? (error as Record<string, unknown>).code : undefined
+      throw new OAuthError(typeof code === 'string' && /^[a-z][a-z0-9_]{0,95}$/.test(code) ? code : `http_${response.status}`, response.status, response.headers)
+    }
+    if (!record) throw new Error('Invalid OpenAI authorization response.')
+    return record
   }
-  authorize(hostId: string, redirectUri: string, state: string, nonce: string, verifier: string, clientId?: string) {
+  authorize(hostId: string, redirectUri: string, state: string, nonce: string, verifier: string, clientId?: string, consent = false) {
     const url = new URL(`${ISSUER}/api/accounts/authorize`)
     url.search = new URLSearchParams({
       client_id: clientId ?? 'dynamic_agent_client', ext_agent_host_id: hostId,
       ...clientId ? {} : { agent_name_hint: 'DeepSeek Harness ChatGPT' },
       redirect_uri: redirectUri, response_type: 'code', scope: SCOPES, resource: RESOURCE,
       state, nonce, code_challenge_method: 'S256', code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+      ...(consent ? { prompt: 'consent' } : {}),
     }).toString()
     // Account hints deliberately omitted: no ID token or email crosses the browser RPC.
     return url.toString()
