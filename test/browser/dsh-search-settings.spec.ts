@@ -4,6 +4,9 @@ import { randomBytes } from 'node:crypto'
 import { test, expect, type Page } from '@playwright/test'
 import { resolveSearchMode, type SearchConfig } from '../../src/shared/search.js'
 
+// These tests share the host's search configuration and navigation state.
+test.describe.configure({ mode: 'serial' })
+
 interface NamespaceView { ns: string; value: SearchConfig; user: SearchConfig; revision: number }
 
 async function settings<T>(page: Page, method: 'describe' | 'mutate', args: Record<string, unknown>): Promise<T> {
@@ -74,7 +77,7 @@ test('installed settings persist explicit search modes and preserve the old conf
       await openSettings(page)
       await expect(select).toHaveValue(mode)
     }
-    await expect(page.getByText('Let GPT search with OpenAI as needed. This mode authorizes hosted browsing outside Harness tool approvals and URL rules.')).toBeVisible()
+    await expect(page.getByText('GPT can use OpenAI search outside Harness tool approvals and URL rules.')).toBeVisible()
     await page.screenshot({ path: info.outputPath('search-settings.png'), fullPage: true, mask: [page.locator('.cgs-current')], maskColor: '#e5e7eb' })
   } finally {
     await restoreMode(page, before)

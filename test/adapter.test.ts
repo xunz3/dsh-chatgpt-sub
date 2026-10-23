@@ -155,6 +155,28 @@ test('empty replay output falls back to visible assistant history', () => {
   }] } as GenerateOptions, 'account')
   assert.deepEqual(request.input, [{ role: 'assistant', content: 'Remembered answer' }])
 })
+test('terminal-only items use announced output positions and matching terminal items replace completed versions once', async () => {
+  const reason = { type: 'reasoning', id: 'reason', encrypted_content: 'opaque', summary: [] }
+  const message = { type: 'message', id: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Remembered answer', annotations: [] }] }
+  const call = { type: 'function_call', id: 'function-item', call_id: 'local-call', name: 'checkpoint', arguments: '{}', status: 'completed' }
+  const revisedCall = { ...call, arguments: '{"confirmed":true}' }
+  const tail = { ...reason, id: 'terminal-only-reason' }
+  const { encrypted_content: _encrypted, ...terminalReason } = reason
+  const chunks: StreamChunk[] = []
+  for await (const chunk of convertStream(events([
+    { type: 'response.output_item.added', output_index: 0, item: reason },
+    { type: 'response.output_text.delta', item_id: 'message', content_index: 0, delta: 'Remembered answer' },
+    { type: 'response.output_item.added', output_index: 2, item: call },
+    { type: 'response.output_item.added', output_index: 3, item: tail },
+    { type: 'response.output_item.done', output_index: 2, item: call },
+    { type: 'response.output_item.done', output_index: 1, item: message },
+    { type: 'response.output_item.done', output_index: 0, item: reason },
+    { type: 'response.completed', response: { status: 'completed', output: [terminalReason, revisedCall, tail] } },
+  ]), 'account')) chunks.push(chunk)
+  const finish = chunks.at(-1)
+  assert.equal(finish?.type, 'finish')
+  if (finish?.type === 'finish') assert.deepEqual(finish.replayState?.response, { output: [reason, message, revisedCall, tail], accountId: 'account' })
+})
 test('request uses public Responses stateless contract and preserves tool IDs', () => {
   const options = {
     provider: 'chatgpt-sub', model: 'available-model', system: 'Be helpful',
@@ -268,6 +290,28 @@ test('encrypted replay from another account is replaced by semantic history', ()
   const request = buildRequest(options, 'active-account')
   assert.equal(JSON.stringify(request).includes('private-encrypted'), false)
   assert.equal(JSON.stringify(request).includes('Visible answer'), true)
+})
+test('another provider cannot supply raw ChatGPT replay even with a matching account', () => {
+  const options = { provider: 'chatgpt-sub', model: 'same-model', messages: [{
+    id: 'm' as MessageId, role: 'assistant', content: [
+      { type: 'text', text: 'Visible answer' },
+      { type: 'tool-call', id: 'visible-call', name: 'read_file', arguments: '{"path":"README.md"}' },
+    ],
+    source: { kind: 'model', provider: 'other-provider', model: 'same-model', replayState: { response: { accountId: 'active-account', output: [
+      { type: 'reasoning', id: 'foreign-reasoning', encrypted_content: 'foreign-encrypted', summary: [] },
+      { type: 'function_call', id: 'foreign-item', call_id: 'foreign-call', name: 'unrelated_tool', arguments: '{}' },
+    ] } } },
+  }] } as GenerateOptions
+  const original = structuredClone(options)
+  for (const account of ['active-account', undefined]) {
+    const request = buildRequest(options, account)
+    assert.deepEqual(request.input, [
+      { role: 'assistant', content: 'Visible answer' },
+      { type: 'function_call', namespace: 'harness', call_id: 'visible-call', name: 'read_file', arguments: '{"path":"README.md"}' },
+    ])
+    assert.equal(JSON.stringify(request).includes('foreign-'), false)
+  }
+  assert.deepEqual(options, original)
 })
 
 test('account model catalog enables only advertised efforts and forwards selection and usage', async () => {

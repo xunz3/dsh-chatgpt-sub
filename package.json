@@ -1,6 +1,7 @@
 {
   "name": "@xunz/dsh-chatgpt-sub",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Sign in with ChatGPT and use your plan in DeepSeek Harness",
   "type": "module",
   "packageManager": "pnpm@11.13.1",
@@ -19,9 +20,11 @@
   "files": [
     "dist",
     "docs",
-    "assets",
+    "assets/logo.svg",
+    "assets/README.md",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {

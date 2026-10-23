@@ -149,3 +149,57 @@ test('public llm/stream waterfall survives real Harness file projection and rema
     assert.doesNotMatch(JSON.stringify(wire[1]), /input_file/)
   } finally { await plugin.dispose(); await runtime.dispose(); await registry.dispose() }
 })
+
+test('real Harness text-model projection keeps mixed image/file messages on the file-tool route', async () => {
+  const ctx = new Context()
+  const registry = ctx.plugin(TypertRegistry)
+  const runtime = ctx.plugin(LlmRuntime)
+  await Promise.all([registry, runtime])
+  const bridge = createNativeFileBridge('chatgpt-sub')
+  const seen: GenerateOptions[] = []
+  const wire: unknown[] = []
+  let reads = 0
+  class TextAdapter extends LlmAdapter {
+    override async resolveModel(provider: string, model: string) {
+      return { provider, id: model, name: model, inputModalities: ['text' as const] }
+    }
+    async *stream(input: GenerateOptions): AsyncIterable<StreamChunk> {
+      const restored = bridge.restore(input)
+      seen.push(restored)
+      const prepared = await prepareFiles(restored, { attachments: { async *readFileStream() { reads++; yield data } } }, false)
+      wire.push(buildRequest(restored, 'account', undefined, {}, prepared).input)
+      yield { type: 'finish', reason: { kind: 'stop' } }
+    }
+  }
+  const plugin = ctx.plugin({ name: 'mixed-file-bridge-test', inject: ['llm'], apply(child: Context) {
+    child.on('llm/stream', bridge.middleware)
+    child.llm.registerAdapter(['chatgpt-sub'], new TextAdapter())
+  } })
+  await plugin
+  try {
+    const document = file({ ...ref, name: 'example.docx' })
+    const screenshot = { type: 'image' as const, attachment: { attachmentId: AttachmentId(`sha256:${'2'.repeat(64)}`), mediaType: 'image/png' as const, bytes: 3, width: 1, height: 1, name: 'screenshot.png' } }
+    const mixed: GenerateOptions = {
+      ...options(document),
+      messages: [createUserMessage({ source: { kind: 'user' }, content: [document, screenshot] })],
+    }
+    const original = structuredClone(mixed)
+    for (const purpose of [undefined, 'compaction'] as const) {
+      await consume(ctx.llm.stream({ ...mixed, purpose }))
+      const projected = seen.at(-1)!
+      assert.deepEqual(projected.messages[0]!.content.map(block => block.type), ['text', 'text'])
+      assert.doesNotMatch(JSON.stringify(wire.at(-1)), /input_file|input_image|base64/)
+      assert.match(JSON.stringify(wire.at(-1)), /example\.docx/)
+      assert.match(JSON.stringify(wire.at(-1)), /image omitted because this model accepts text only/)
+    }
+    assert.equal(reads, 0, 'host image projection prevents restoring the changed mixed message')
+    assert.deepEqual(mixed, original, 'neither host projection nor the bridge mutates durable attachments')
+
+    // Compaction intentionally replays retained user content. Without an image
+    // projection, the intact file occurrence must remain available to summarize.
+    await consume(ctx.llm.stream({ ...options(document), purpose: 'compaction' }))
+    assert.equal(seen.at(-1)!.messages[0]!.content[0]!.type, 'file')
+    assert.match(JSON.stringify(wire.at(-1)), /input_file/)
+    assert.equal(reads, 1)
+  } finally { await plugin.dispose(); await runtime.dispose(); await registry.dispose() }
+})

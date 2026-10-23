@@ -19,7 +19,9 @@ concurrency:
 
 jobs:
   publish:
-    if: github.repository == 'xunz3/dsh-chatgpt-sub'
+    # Both release and manual runs must select a version tag. The step below
+    # also checks that the tag matches package.json before installing anything.
+    if: github.repository == 'xunz3/dsh-chatgpt-sub' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

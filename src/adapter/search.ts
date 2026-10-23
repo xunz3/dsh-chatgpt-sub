@@ -5,7 +5,8 @@ import type { SearchMode } from '../shared/search.js'
 export function searchTools(options: GenerateOptions, mode: SearchMode) {
   if (options.provider !== 'chatgpt-sub') return { tools: options.tools, native: false }
   const auxiliary = options.purpose !== undefined
-  // Select directly declared search tools. Harness owns opaque transports such
+  // `web_search` is the standard declaration in the pinned Harness 0.2.1 API;
+  // do not infer aliases from extension tool names. Harness owns transports such
   // as run_code, extension tools, their permissions and the agent's instructions.
   return {
     tools: !auxiliary && mode === 'harness' ? options.tools : options.tools?.filter(tool => tool.name !== 'web_search'),

@@ -127,6 +127,43 @@ test('cancelled pending login cannot publish credentials', async () => {
   } finally { f.auth.dispose() }
 })
 
+test('a failed initial status read clears pending login and releases its callback port', async () => {
+  const f = await fixture()
+  const read = f.store.read.bind(f.store)
+  const authorize = f.oauth.authorize.bind(f.oauth)
+  let reads = 0, callback = ''
+  f.store.read = async () => {
+    if (++reads === 2) throw new Error('Credential status unavailable')
+    return read()
+  }
+  f.oauth.authorize = (...args) => { callback = args[1]; return authorize(...args) }
+  try {
+    await assert.rejects(f.auth.login(), /Credential status unavailable/)
+    assert.deepEqual((await f.auth.status()).flow, { phase: 'idle' })
+    assert.equal((await f.store.read()).accounts.length, 0)
+    const listener = await listenCallback('next', undefined, new AbortController().signal, Number(new URL(callback).port))
+    listener.close()
+    await f.begin()
+    assert.equal((await f.auth.cancel()).flow.phase, 'idle')
+  } finally { f.auth.dispose() }
+})
+
+test('unconfirmed remote revocation clears tokens but retains the selected registration and a safe notice', async () => {
+  const f = await fixture()
+  try {
+    const id = await f.connect()
+    f.oauth.revoke = async () => { throw new Error('secret-refresh from upstream') }
+    const status = await f.auth.logout(id)
+    assert.equal(status.activeId, id)
+    assert.equal(status.accounts[0].connected, false)
+    assert.match(status.notice!, /Signed out locally.*Remote revocation was not confirmed.*ChatGPT Settings/)
+    assert.equal(JSON.stringify(status).includes('secret-refresh'), false)
+    const account = (await f.store.read()).accounts[0]
+    assert.equal(account.tokens, undefined)
+    assert.equal(account.clientId, 'client-test')
+  } finally { f.auth.dispose() }
+})
+
 test('malformed callback request cannot crash the host', async () => {
   const listener = await listenCallback('valid', undefined, new AbortController().signal)
   try {
@@ -187,6 +224,34 @@ test('OpenID discovery receives and honors cancellation', async () => {
   const pending = oauth.verify('unused', 'client', 'nonce', controller.signal)
   controller.abort()
   await assert.rejects(pending)
+  assert.equal(received?.aborted, true)
+})
+
+for (const reason of ['timeout', 'cancel'] as const) test(`JWKS fetch preserves jose timeout and caller cancellation: ${reason}`, async t => {
+  const pair = await generateKeyPair('RS256')
+  const token = await new SignJWT({}).setProtectedHeader({ alg: 'RS256', kid: 'test-key' }).setIssuer(ISSUER).setAudience('client').setSubject('subject').setIssuedAt().setExpirationTime('1h').sign(pair.privateKey)
+  const timeout = new AbortController(), caller = new AbortController()
+  const originalTimeout = AbortSignal.timeout.bind(AbortSignal)
+  const durations: number[] = []
+  t.mock.method(AbortSignal, 'timeout', (duration: number) => {
+    durations.push(duration)
+    return duration === 5000 ? timeout.signal : originalTimeout(duration)
+  })
+  let received: AbortSignal | null | undefined
+  let fetched!: () => void
+  const ready = new Promise<void>(resolve => { fetched = resolve })
+  const oauth = new OAuth(async (url, init) => {
+    if (String(url).endsWith('openid-configuration')) return Response.json({ issuer: ISSUER, jwks_uri: `${ISSUER}/jwks` })
+    received = init?.signal
+    fetched()
+    return new Promise<Response>((_resolve, reject) => received!.addEventListener('abort', () => reject(received!.reason), { once: true }))
+  })
+  const pending = oauth.verify(token, 'client', undefined, caller.signal)
+  await ready
+  assert.ok(durations.includes(5000), 'jose supplies a five-second JWKS timeout')
+  if (reason === 'timeout') timeout.abort(new DOMException('Timed out', 'TimeoutError'))
+  else caller.abort(new DOMException('Cancelled', 'AbortError'))
+  await assert.rejects(pending, reason === 'timeout' ? { code: 'ERR_JWKS_TIMEOUT' } : { name: 'AbortError' })
   assert.equal(received?.aborted, true)
 })
 

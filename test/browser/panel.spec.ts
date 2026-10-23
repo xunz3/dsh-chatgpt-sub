@@ -86,6 +86,16 @@ test('dark mobile Chinese UI stays within the viewport', async ({ page }) => {
   await page.screenshot({ path: 'test-results/chatgpt-dark-mobile.png', fullPage: true })
 })
 
+test('revocation notice links to ChatGPT settings with an access-neutral label', async ({ page }) => {
+  await mount(page, { ...signedOut, notice: 'Signed out locally. Remote revocation was not confirmed; disconnect the app in ChatGPT Settings.' })
+  const notice = page.getByRole('status')
+  await expect(notice).toContainText('Remote revocation was not confirmed')
+  const link = notice.getByRole('link', { name: 'Open ChatGPT settings' })
+  await expect(link).toHaveAttribute('href', 'https://chatgpt.com/settings/usage')
+  await expect(link).toHaveAttribute('rel', 'noreferrer')
+  await expect(page.getByRole('link', { name: 'Manage usage' })).toHaveCount(0)
+})
+
 test('account management identifies registrations and shows plan access for the selected account', async ({ page }) => {
   await mount(page, connected)
   await page.getByRole('button', { name: 'Got it' }).click()

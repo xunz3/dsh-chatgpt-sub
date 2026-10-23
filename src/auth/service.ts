@@ -70,8 +70,16 @@ export class AuthService implements PluginApi {
           }
         } finally { callbackListener.close(); if (this.attempt === attempt) this.attempt = undefined }
       })()
-      return this.status()
-    } catch (error) { listener?.close(); controller.abort(); if (this.attempt === attempt) this.attempt = undefined; throw error }
+      return await this.status()
+    } catch (error) {
+      // Abort before closing: close removes the callback's abort listener, and
+      // a failed initial status read must still settle the pending login task.
+      controller.abort()
+      listener?.close()
+      await attempt.task
+      if (this.attempt === attempt) { this.attempt = undefined; this.flow = { phase: 'idle' } }
+      throw error
+    }
   }
   async cancel() {
     const attempt = this.attempt

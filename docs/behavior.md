@@ -2,11 +2,13 @@
 
 ## 账户与模型
 
-设置页显示当前账户；切换、添加与退出收在 **管理** 中。同一邮箱可以有多个工作区注册，选项用注册标识末六位区分。切换账户会中止旧账户请求并刷新模型目录。退出会撤销 refresh token、清除本地 token，保留注册与安装 ID；远程撤销未确认时提示去 ChatGPT 断开应用。
+设置页显示当前账户；切换、添加与退出收在 **管理** 中。同一邮箱可以有多个工作区注册，选项用注册标识末六位区分。切换账户会中止旧账户请求并刷新模型目录。退出会撤销 refresh token、清除本地 token，保留邮箱、账户注册与安装 ID 供重新登录，不自动切换到其他账户；远程撤销未确认时提示去 ChatGPT 断开应用。
 
 模型列表、上下文窗口、图像能力与 Effort 档位来自当前账户目录。支持文本、[图像](images.md)、[文件](files.md)、工具调用、搜索、usage 和加密 reasoning 历史续传。插件不估算套餐余额；设置页提供 ChatGPT 用量入口，不承诺缓存命中或缓存保留时长。
 
 请求使用 `store: false`、`stream: true`，只有 `response.completed` 算成功。系统指令映射为 `developer`；省略此登录通道不支持的 `temperature` 和 `max_output_tokens`，因此宿主的 maxTokens 不作为输出上限生效。stop sequences 会明确报错。依据：[SIWC 请求限制](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)。
+
+辅助请求的内容由 Harness 决定：当前标题生成只发送文字，压缩会保留原消息及附件。插件不擅自删除压缩所需的图像或文件，附件仍适用相同的本地请求预算。
 
 ## 搜索与历史
 

@@ -28,7 +28,7 @@ const localTools = [
 async function* events(items: unknown[]) { for (const item of items) yield item as ResponseStreamEvent }
 
 /** Persist history through Harness's real assembler, including rendered links. */
-async function history() {
+async function history(terminalOutput: unknown[] = []) {
   const assembler = new BlockAssembler()
   for await (const chunk of convertStream(events([
     { type: 'response.web_search_call.in_progress', item_id: 'hosted-search' },
@@ -37,10 +37,22 @@ async function history() {
     { type: 'response.content_part.done', item_id: 'answer', content_index: 0, part: output[2]!.content![0] },
     { type: 'response.output_item.added', item: output[3] },
     ...output.map((item, output_index) => ({ type: 'response.output_item.done', output_index, item })),
-    { type: 'response.completed', response: { status: 'completed', output: [] } },
+    { type: 'response.completed', response: { status: 'completed', output: terminalOutput } },
   ]), 'account-one')) assembler.push(chunk)
   return assembler.message({ provider: 'chatgpt-sub', model: 'original-model', replayState: assembler.replayState })
 }
+
+test('partial terminal snapshots retain completed text, citations and local calls in the next request', async () => {
+  for (const terminal of [[output[0]], [output[3]], [output[1], output[2]]]) {
+    const assistant = await history(terminal)
+    assert.ok(assistant.content.some(block => block.type === 'text' && block.text.includes('Answer')))
+    const request = buildRequest({ provider: 'chatgpt-sub', model: 'original-model', messages: [assistant, result, followUp] }, 'account-one')
+    assert.ok(Array.isArray(request.input))
+    assert.deepEqual(request.input.slice(0, 4), [...output.slice(0, 3), { ...output[3], namespace: 'harness' }], 'item.done history survives a partial, compacted terminal array without duplicate IDs or reordered calls')
+    assert.deepEqual(request.input[4], { type: 'function_call_output', call_id: callId, output: 'Previously fetched Harness result: https://example.com/harness' })
+    assert.deepEqual(request.input[5], { role: 'user', content: followUp.content[0].text })
+  }
+})
 
 test('changing search modes preserves prior Harness calls and results even when their tool is hidden', async () => {
   const assistant = await history()
@@ -236,9 +248,14 @@ test('semantic history and old raw-result histories each materialize evidence on
       assert.ok(snapshots[0].text.includes(retrievedFact))
     }
   }
-  const otherProvider = { ...assistant, source: { ...assistant.source, provider: 'other-provider', replayState: undefined } }
-  const request = buildRequest({ provider: 'chatgpt-sub', model: 'original-model', messages: [otherProvider, checkpointResult] }, 'account-one')
-  assert.equal(evidenceInputs(request).length, 0, 'a matching text marker from another adapter is not a ChatGPT evidence block')
+  for (const replayState of [undefined, assistant.source.replayState]) {
+    const otherProvider = { ...assistant, source: { ...assistant.source, provider: 'other-provider', replayState } }
+    const request = buildRequest({ provider: 'chatgpt-sub', model: 'original-model', messages: [otherProvider, checkpointResult] }, 'account-one')
+    assert.equal(evidenceInputs(request).length, 0, 'neither a text marker nor similarly shaped replay from another adapter supplies ChatGPT evidence')
+    assert.ok(Array.isArray(request.input))
+    assert.equal(request.input.some(item => item.type === 'web_search_call'), false)
+    assert.deepEqual(request.input[0], { type: 'function_call', namespace: 'harness', call_id: checkpointId, name: 'checkpoint', arguments: '{}' }, 'semantic tool linkage survives the provider change')
+  }
 })
 
 test('display, legacy and already-framed source histories normalize once without rewriting persisted content', async () => {

@@ -10,14 +10,17 @@ const pkg = JSON.parse(read('package.json'))
 const source = JSON.parse(readFileSync('package.json', 'utf8'))
 assert.equal(pkg.name, source.name)
 assert.equal(pkg.version, source.version)
+assert.equal(pkg.license, 'MIT')
 assert.equal(pkg.publishConfig.access, 'public')
 assert.equal(pkg.publishConfig.registry, 'https://registry.npmjs.org/')
 
 const files = new Set(packed.files.map(file => file.path))
 const requireFile = path => assert(files.has(path.replace(/^\.\//, '')), `Missing packed file: ${path}`)
+requireFile('LICENSE')
+assert.equal(read('LICENSE'), readFileSync('LICENSE', 'utf8'), 'Packaged license must match the repository')
 for (const path of [pkg.exports['.'].types, pkg.exports['.'].default, pkg.exports['./client'], pkg.exports['./package.json'], pkg.dsh.bundle.patch, 'assets/logo.svg', 'README.md']) requireFile(path)
 for (const path of files) {
-  assert(/^(dist\/|docs\/|assets\/|package\.json$|README\.md$|cordis\.patch\.yml$|LICENSE(?:\..*)?$)/.test(path), `Unexpected packed file: ${path}`)
+  assert(/^(dist\/|docs\/|assets\/(?:logo\.svg|README\.md)$|package\.json$|README\.md$|cordis\.patch\.yml$|LICENSE(?:\..*)?$)/.test(path), `Unexpected packed file: ${path}`)
   assert(!/(^|\/)(?:\.env(?:\..*)?|node_modules|test-results|\.npmrc)(\/|$)/.test(path), `Private or generated file: ${path}`)
 }
 

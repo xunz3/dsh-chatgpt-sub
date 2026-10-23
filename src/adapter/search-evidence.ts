@@ -97,14 +97,19 @@ export function searchEvidence(items: readonly unknown[]): string | undefined {
     const title = excerpt ? text(source.title, 300) : undefined
     const snippet = excerpt ? text(source.snippet, 3000) : undefined
     const key = JSON.stringify([url, snippet ?? ''])
-    // URL-only source listings should not duplicate a retained excerpt.
+    // Upgrade a URL-only listing in place when a later search returns its excerpt.
     if (seen.has(key) || (!snippet && evidence.sources.some(entry => entry.url === url))) return
-    if (evidence.sources.length >= MAX_SOURCES) { evidence.truncated = true; return }
+    const existingIndex = snippet ? evidence.sources.findIndex(entry => entry.url === url && !entry.snippet) : -1
+    if (existingIndex < 0 && evidence.sources.length >= MAX_SOURCES) { evidence.truncated = true; return }
     const truncated = typeof source.snippet === 'string' && source.snippet.length > 3000 || typeof source.title === 'string' && source.title.length > 300
     const entry: Source = { url, ...(title ? { title } : {}), ...(snippet ? { snippet } : {}), ...(truncated ? { truncated: true } : {}) }
-    evidence.sources.push(entry)
+    const previous = evidence.sources[existingIndex]
+    if (previous) evidence.sources[existingIndex] = { ...previous, ...entry }
+    else evidence.sources.push(entry)
     if (render(evidence, true).length > SEARCH_EVIDENCE_MAX_CHARS) {
-      evidence.sources.pop(); evidence.truncated = true
+      if (previous) evidence.sources[existingIndex] = previous
+      else evidence.sources.pop()
+      evidence.truncated = true
     } else {
       seen.add(key)
       evidence.truncated ||= truncated

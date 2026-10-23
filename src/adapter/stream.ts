@@ -18,11 +18,29 @@ function outputStarted(event: ResponseStreamEvent): boolean {
   return 'response' in event && Array.isArray(event.response.output) && event.response.output.length > 0
 }
 
+/** Item events carry stable output positions even when the terminal array is partial. */
+function replayOutput(terminal: ResponseOutputItem[], completed: Map<number, ResponseOutputItem>, indexes: Map<string, number>): ResponseOutputItem[] {
+  const entries = [...completed].map(([index, item]) => ({ index, item }))
+  for (const [position, item] of terminal.entries()) {
+    const index = item.id ? indexes.get(item.id) ?? position : position
+    const previous = entries.find(entry => entry.item.type === item.type && (item.id
+      ? entry.item.id === item.id
+      : !entry.item.id && entry.index === index))
+    if (!previous) { entries.push({ index, item }); continue }
+    // Explicit terminal values win, including empty search result/source lists.
+    previous.item = previous.item.type === 'web_search_call' && item.type === 'web_search_call'
+      ? { ...previous.item, ...item, action: { ...previous.item.action, ...item.action } }
+      : { ...previous.item, ...item } as ResponseOutputItem
+  }
+  return entries.sort((a, b) => a.index - b.index).map(entry => entry.item)
+}
+
 /** Convert SSE events while retaining encrypted reasoning for stateless tool continuations. */
 export async function* convertStream(events: AsyncIterable<ResponseStreamEvent>, accountId?: string, context: ErrorContext = {}): AsyncGenerator<StreamChunk> {
   const blocks = new Map<string, { index: number; block: ContentBlock }>()
   const toolIds = new Map<string, string>()
   const completedItems = new Map<number, ResponseOutputItem>()
+  const outputIndexes = new Map<string, number>()
   const citations = new Map<string, unknown[]>()
   const searches = new Map<string, { details?: string; status?: 'completed' | 'failed' }>()
   const closed = new Set<string>()
@@ -68,6 +86,9 @@ export async function* convertStream(events: AsyncIterable<ResponseStreamEvent>,
   try {
     for await (const event of events) {
       hasOutput ||= outputStarted(event)
+      if ((event.type === 'response.output_item.added' || event.type === 'response.output_item.done') && event.item.id && Number.isInteger(event.output_index)) {
+        outputIndexes.set(event.item.id, event.output_index)
+      }
       if (event.type === 'response.output_item.done') {
         completedItems.set(event.output_index, event.item)
         if (event.item.type === 'web_search_call') yield* searchProgress(event.item.id, event.item.action, event.item.status)
@@ -138,16 +159,7 @@ export async function* convertStream(events: AsyncIterable<ResponseStreamEvent>,
         // Encrypted reasoning and call IDs must survive stateless continuations.
         // Some streaming responses omit output items from the terminal snapshot.
         // Retain the completed item events so later turns can replay the answer.
-        const output: ResponseOutputItem[] = event.response.output?.length
-          ? event.response.output.map(item => {
-            if (item.type !== 'web_search_call') return item
-            const completed = [...completedItems.values()].find(previous => previous.type === 'web_search_call' && previous.id === item.id)
-            if (completed?.type !== 'web_search_call') return item
-            // Terminal snapshots sometimes omit included metadata. Preserve
-            // item.done fields, while explicit terminal values (even []) win.
-            return { ...completed, ...item, action: { ...completed.action, ...item.action } }
-          })
-          : [...completedItems].sort(([a], [b]) => a - b).map(([, item]) => item)
+        const output = replayOutput(event.response.output ?? [], completedItems, outputIndexes)
         const evidence = searchEvidence(output)
         if (evidence) {
           // Ordinary persisted content participates in Harness's token meter

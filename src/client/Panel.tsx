@@ -102,7 +102,7 @@ export function Panel({ api, searchForm, t }: { api: PluginApi; searchForm: Conf
         <h3 className="cgs-group-heading"><SectionIcon kind="usage" />{t('planGroup')}</h3>
         <div className="cgs-plan"><span title={t('planUnavailable')}>{t('planAllowance')}</span><a href={usage} target="_blank" rel="noreferrer">{t('viewPlan')} ↗</a></div>
       </section>}
-      {status.notice && <p role="status">{status.notice} <a href={usage} target="_blank" rel="noreferrer">{t('manage')}</a></p>}
+      {status.notice && <p role="status">{status.notice} <a href={usage} target="_blank" rel="noreferrer">{t('openSettings')}</a></p>}
       <SearchSettings form={searchForm} t={t} />
       <details className="cgs-network"><summary><SectionIcon kind="network" />{t('network')}</summary><p>{t(status.proxyMode)}</p><p>{t('browserProxy')}</p><p>{t('remote')}</p>{status.flow.callback && <code>{status.flow.callback}</code>}</details>
     </>}

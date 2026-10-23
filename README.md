@@ -8,7 +8,7 @@
 
 需要 **Node.js 22.12+** 和 **DeepSeek Harness 0.2.1-rc.2**。
 
-首次发布完成后，从 npm 安装到你使用的 profile（以下以 `web` 为例）：
+从 npm 安装到你使用的 profile（以下以 `web` 为例）：
 
 ```sh
 dsh plugin --profile web add @xunz/dsh-chatgpt-sub
@@ -41,3 +41,9 @@ pnpm check:package
 ```
 
 常规检查使用模拟请求；真实 Harness 测试需要显式开启，见[验证说明](docs/behavior.md#验证)。
+
+本地验证安装可在上述打包检查后运行 `dsh plugin --profile web add ./xunz-dsh-chatgpt-sub-0.1.0.tgz`。
+
+## 许可证
+
+[MIT](LICENSE)。Logo 的第三方来源与商标说明见 [assets/README.md](assets/README.md)。

@@ -46,7 +46,9 @@ export function buildRequest(options: GenerateOptions, accountId?: string, image
     if (message.role === 'tool') {
       input.push({ type: 'function_call_output', call_id: message.source.callId, output: inputContent(message.content, images, files) })
     } else if (message.role === 'assistant') {
-      const replay = message.source.replayState as { response?: { output?: ResponseInput; accountId?: string } } | undefined
+      const replay = message.source.provider === 'chatgpt-sub'
+        ? message.source.replayState as { response?: { output?: ResponseInput; accountId?: string } } | undefined
+        : undefined
       if (message.source.provider === 'chatgpt-sub') {
         for (const block of message.content) {
           if (block.type === 'reasoning') pendingEvidence = searchEvidenceInput(block.text)

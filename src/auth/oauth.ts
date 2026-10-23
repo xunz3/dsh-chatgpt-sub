@@ -71,6 +71,7 @@ export class OAuth {
   }
   async verify(idToken: string, clientId: string, nonce?: string, signal?: AbortSignal) {
     const metadata = await this.discovery(signal)
+    // Keep jose's built-in 5-second JWKS timeout when adding caller cancellation.
     const jwks = createRemoteJWKSet(new URL(metadata.jwks_uri), { [customFetch]: (url, options) => this.fetch(url, {
       ...options, signal: signal ? AbortSignal.any([signal, ...(options?.signal ? [options.signal] : [])]) : options?.signal,
     }) })

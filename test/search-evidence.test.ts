@@ -78,6 +78,44 @@ test('unsafe URLs, unknown result shapes and hostile markup remain outside trust
   assert.equal(isSearchEvidence(snapshot), true)
 })
 
+test('later excerpts upgrade URL-only sources while distinct excerpts remain available', () => {
+  const second = { ...source, snippet: 'A different retrieved excerpt.' }
+  const snapshot = searchEvidence([
+    { ...search, id: 'url-first', action: { ...search.action, sources: [{ type: 'url', url: source.url }] } },
+    { ...search, id: 'excerpts-later', results: [source, source, second] },
+    { ...search, id: 'url-again', action: { ...search.action, sources: [{ type: 'url', url: source.url }] } },
+  ])
+  assert.ok(snapshot)
+  const data = JSON.parse(snapshot.split('```json\n')[1]!.slice(0, -4))
+  assert.deepEqual(data.sources, [source, second].map(({ type: _type, ...entry }) => entry))
+  assert.equal(data.truncated, false)
+})
+
+test('URL-only upgrades respect the source count and roll back when the character budget is full', () => {
+  const urls = Array.from({ length: 32 }, (_, index) => ({ type: 'url', url: index ? `https://evidence.example/source-${index}` : source.url }))
+  const fullCount = searchEvidence([
+    { ...search, id: 'urls', action: { ...search.action, sources: urls } },
+    { ...search, id: 'excerpt', results: [source] },
+  ])
+  assert.ok(fullCount)
+  const upgraded = JSON.parse(fullCount.split('```json\n')[1]!.slice(0, -4))
+  assert.equal(upgraded.sources.length, 32)
+  assert.deepEqual(upgraded.sources[0], { url: source.url, title: source.title, snippet: source.snippet })
+  assert.equal(upgraded.truncated, false, 'upgrading an existing source does not consume another source slot')
+
+  const fullCharacters = searchEvidence([
+    { ...search, id: 'url', action: { ...search.action, sources: [{ type: 'url', url: source.url }] } },
+    { ...search, id: 'other-excerpts', results: Array.from({ length: 15 }, (_, index) => ({ ...source, url: `https://evidence.example/long-${index}`, snippet: 'x'.repeat(2900) })) },
+    { ...search, id: 'too-large-upgrade', results: [{ ...source, snippet: 'y'.repeat(3000) }] },
+  ])
+  assert.ok(fullCharacters)
+  const bounded = JSON.parse(fullCharacters.split('```json\n')[1]!.slice(0, -4))
+  assert.deepEqual(bounded.sources[0], { url: source.url }, 'keep the known URL if its excerpt cannot fit')
+  assert.equal(bounded.sources.length, 16)
+  assert.equal(bounded.truncated, true)
+  assert.ok(searchEvidenceInput(fullCharacters)!.length <= SEARCH_EVIDENCE_MAX_CHARS)
+})
+
 test('matching titles and fences do not turn malformed or unrelated JSON into retained evidence', () => {
   const valid = { searches: [{ results: 'returned', returned: 1 }], sources: [{ url: source.url, snippet: source.snippet }], truncated: false }
   for (const data of [
