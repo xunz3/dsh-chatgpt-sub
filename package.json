@@ -1,5 +1,5 @@
 {
-  "name": "dsh-chatgpt-sub",
+  "name": "@xunz/dsh-chatgpt-sub",
   "version": "0.1.0",
   "description": "Sign in with ChatGPT and use your plan in DeepSeek Harness",
   "type": "module",
@@ -19,7 +19,6 @@
   "files": [
     "dist",
     "docs",
-    "icon.svg",
     "assets",
     "cordis.patch.yml",
     "README.md"
@@ -44,7 +43,8 @@
     "test": "node --import tsx --test --test-isolation=none test/*.test.ts",
     "test:browser": "playwright test",
     "check": "pnpm typecheck && pnpm test && pnpm build",
-    "prepack": "pnpm build"
+    "prepack": "pnpm build",
+    "check:package": "node scripts/check-package.mjs"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.5",
@@ -83,5 +83,17 @@
     "react-dom": "18.3.1",
     "tsx": "4.23.15",
     "typescript": "5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xunz3/dsh-chatgpt-sub.git"
+  },
+  "homepage": "https://github.com/xunz3/dsh-chatgpt-sub#readme",
+  "bugs": {
+    "url": "https://github.com/xunz3/dsh-chatgpt-sub/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

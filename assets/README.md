@@ -5,7 +5,7 @@ whale contour and knot path are retained, with a new mouth cutout and eye.
 The mark is monochrome; in the UI it follows the host's foreground color.
 This is this community plugin's identity, not an official joint product mark.
 
-`logo.svg` is the standalone vector; `../icon.svg` is the packaged Harness icon.
+`logo.svg` is the standalone vector included in the npm package.
 The React version preserves `currentColor` and uses a unique mask ID per instance.
 
 Source SVGs downloaded on 2026-10-23:

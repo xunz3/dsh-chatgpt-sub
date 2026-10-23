@@ -3,7 +3,7 @@ import type { InvocationDescriptor, TypertCodec, TypertRemoteContribution } from
 import type { AccountView, Status } from './types.js'
 
 export const RPC_NAMESPACE = 'chatgptSubscription'
-export const RPC_PACKAGE = 'dsh-chatgpt-sub'
+export const RPC_PACKAGE = '@xunz/dsh-chatgpt-sub'
 
 function object(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Expected an object')
