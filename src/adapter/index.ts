@@ -44,6 +44,7 @@ function modelInfo(model: CatalogModel & { slug: string }): ChatGPTModel {
   })
   return {
     provider: PROVIDER, id: model.slug, name: model.display_name || model.slug,
+    toolUpdate: 'addition-only',
     supportsOriginal: model.supports_image_detail_original === true,
     // Absent capability metadata means unknown, not text-only. Do not discard
     // images for new models merely because their catalog omits this field.

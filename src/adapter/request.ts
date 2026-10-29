@@ -1,14 +1,15 @@
 import { createHash } from 'node:crypto'
-import { LlmError, type ContentBlock, type GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { LlmError, type ContentBlock, type GenerateOptions, type ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { ResponseInput, ResponseCreateParamsStreaming } from 'openai/resources/responses/responses'
 import type { ImageContent, PreparedImages } from './images.js'
 import type { FileContent, PreparedFiles } from './files.js'
 import { searchTools } from './search.js'
 import { searchEvidence, searchEvidenceInput } from './search-evidence.js'
 import type { SearchMode } from '../shared/search.js'
+import { toolNamespace, TOOL_NAMESPACE } from './tools.js'
 
 export interface RequestFeatures { searchMode?: SearchMode }
-export const TOOL_NAMESPACE = 'harness'
+export { TOOL_NAMESPACE } from './tools.js'
 
 function inputContent(blocks: readonly ContentBlock[], images?: PreparedImages, files?: PreparedFiles): string | (ImageContent | FileContent)[] {
   if (!blocks.some(block => block.type === 'image' || block.type === 'file')) {
@@ -31,6 +32,12 @@ function inputContent(blocks: readonly ContentBlock[], images?: PreparedImages, 
 export function buildRequest(options: GenerateOptions, accountId?: string, images?: PreparedImages, features: RequestFeatures = {}, files?: PreparedFiles): ResponseCreateParamsStreaming {
   if (options.stop?.length) throw new LlmError('ChatGPT Responses does not support stop sequences.', 'UNSUPPORTED_PARAMETER')
   const input: ResponseInput = []
+  const search = searchTools(options, features.searchMode ?? 'native')
+  // Harness owns toolHistory and has already projected messages/tools for this
+  // route. Only translate its deferLoading markers and retained activations.
+  const initial = (search.tools ?? []).filter(tool => options.purpose !== undefined || !tool.deferLoading)
+  const deferred = new Map((options.purpose === undefined ? search.tools ?? [] : [])
+    .filter(tool => tool.deferLoading).map(tool => [tool.name, tool]))
   let pendingEvidence: string | undefined
   const flushEvidence = () => {
     if (pendingEvidence) input.push({ role: 'user', content: pendingEvidence })
@@ -76,6 +83,32 @@ export function buildRequest(options: GenerateOptions, accountId?: string, image
       const text = message.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
       if (text) input.push({ role: 'assistant', content: text })
       for (const block of message.content) if (block.type === 'tool-call') input.push({ type: 'function_call', namespace: TOOL_NAMESPACE, call_id: block.id, name: block.name, arguments: block.arguments })
+    } else if (message.role === 'developer') {
+      // Keep declarations at their original position, including text interleaved
+      // with tool activations. Do not promote them into top-level tools on replay.
+      let text: string[] = []
+      let added: ToolSchema[] = []
+      const flushText = () => {
+        if (text.length) input.push({ role: 'developer', content: text.join('\n') })
+        text = []
+      }
+      const flushTools = () => {
+        if (added.length) input.push({ type: 'additional_tools', role: 'developer', tools: [toolNamespace(added)] })
+        added = []
+      }
+      for (const block of message.content) {
+        const tool = block.type === 'tool-addition' ? deferred.get(block.toolName) : undefined
+        if (tool) {
+          flushText()
+          added.push(tool)
+          deferred.delete(tool.name)
+        } else if (block.type === 'text') {
+          flushTools()
+          text.push(block.text)
+        }
+      }
+      flushText()
+      flushTools()
     } else {
       const content = inputContent(message.content, images, files)
       if (content.length) input.push({ role: message.role === 'system' ? 'developer' : message.role, content })
@@ -85,9 +118,8 @@ export function buildRequest(options: GenerateOptions, accountId?: string, image
   // Keep related calls associated without exposing account or session identifiers.
   // Like Pi's public ChatGPT flow, this supplies affinity, not a cache-hit guarantee.
   const cacheKey = options.sessionId ? createHash('sha256').update(JSON.stringify([accountId ?? '', options.sessionId])).digest('hex') : undefined
-  const search = searchTools(options, features.searchMode ?? 'native')
   const tools: NonNullable<ResponseCreateParamsStreaming['tools']> = []
-  if (search.tools?.length) tools.push({ type: 'namespace', name: TOOL_NAMESPACE, description: 'Tools executed by DeepSeek Harness.', tools: search.tools.map(tool => ({ type: 'function', name: tool.name, description: tool.description, parameters: tool.parameters, strict: false })) })
+  if (initial.length) tools.push(toolNamespace(initial))
   if (search.native) tools.push({ type: 'web_search' })
   return {
     model: options.model, input, stream: true, store: false,

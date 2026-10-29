@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { EMPTY_RESPONSE_CODE, LlmError, ReasoningEffortId, resolveRetryPolicy, type GenerateOptions, type StreamChunk, type MessageId, type TokenUsage } from '@deepseek-ai/dsh-llm'
+import { EMPTY_RESPONSE_CODE, LlmError, ReasoningEffortId, createAssistantMessage, createToolResultMessage, resolveRetryPolicy, type GenerateOptions, type StreamChunk, type MessageId, type TokenUsage, type ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ResponseStreamEvent } from 'openai/resources/responses/responses'
 import { buildRequest } from '../src/adapter/request.js'
 import { convertStream } from '../src/adapter/stream.js'
@@ -35,6 +35,48 @@ test('partial text followed by EOF, incomplete, or usage failure never succeeds'
     assert.equal(chunks.some(c => c.type === 'finish'), false)
   }
 })
+test('a provider-capped incomplete response finishes as max-tokens with partial replay', async () => {
+  const response = {
+    status: 'incomplete',
+    incomplete_details: { reason: 'max_output_tokens' },
+    output: [{ type: 'message', id: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Partial', annotations: [] }] }],
+    usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } },
+  }
+  const chunks: StreamChunk[] = []
+  for await (const chunk of convertStream(events([
+    { type: 'response.output_text.delta', item_id: 'message', content_index: 0, delta: 'Partial' },
+    { type: 'response.incomplete', response },
+  ]))) chunks.push(chunk)
+  const last = chunks.at(-1)
+  assert.equal(last?.type, 'finish')
+  if (last?.type === 'finish') {
+    assert.equal(last.reason.kind, 'max-tokens')
+    assert.deepEqual(last.replayState?.response, { output: response.output })
+  }
+  assert.equal(chunks.filter(chunk => chunk.type === 'block-end').length, 1)
+  assert.equal(chunks.find(chunk => chunk.type === 'usage')?.type, 'usage')
+})
+
+test('output caps during local tool calls fail without committing orphaned replay', async () => {
+  const call = { type: 'function_call', id: 'fc', call_id: 'call', name: 'read_file', arguments: '{"path":', status: 'incomplete' }
+  for (const [before, output] of [
+    [[{ type: 'response.output_item.added', output_index: 0, item: call }], [call]],
+    [[{ type: 'response.output_item.done', output_index: 0, item: { ...call, arguments: '{}', status: 'completed' } }], []],
+    [[], [call]],
+  ] as const) {
+    const chunks: StreamChunk[] = []
+    await assert.rejects(async () => {
+      for await (const chunk of convertStream(events([
+        { type: 'response.output_text.delta', item_id: 'message', content_index: 0, delta: 'Checking.' },
+        ...before,
+        { type: 'response.incomplete', response: { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output } },
+      ]), 'account', { phase: 'stream', headers: new Headers({ 'x-request-id': 'req_cap' }) })) chunks.push(chunk)
+    }, error => error instanceof LlmError && error.code === 'INTERRUPTED_STREAM' && error.failure.requestId === 'req_cap')
+    assert.equal(chunks.some(chunk => chunk.type === 'finish'), false, 'no successful turn or raw replay may be committed')
+    assert.equal(chunks.some(chunk => chunk.type === 'block-end' && chunk.block.type === 'tool-call'), false)
+  }
+})
+
 test('EOF before output permits Harness retry and retains request diagnostics', async () => {
   const policy = resolveRetryPolicy(undefined, 'test')
   for (const values of [[], [
@@ -223,6 +265,38 @@ test('prompt cache association is stable per account and session across appended
   assert.equal(JSON.stringify(first).includes('account-one'), false)
   assert.equal(JSON.stringify(first).includes('session-one'), false)
 })
+test('tool continuations keep the existing request prefix and declarations byte for byte', () => {
+  let options: GenerateOptions = {
+    provider: 'chatgpt-sub', model: 'gpt-6.1-sol', sessionId: 'session-one' as NonNullable<GenerateOptions['sessionId']>,
+    system: 'Stable instructions', reasoningEffort: ReasoningEffortId('max'),
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'Complete this long task.' }] }],
+    tools: [{ name: 'read_file', description: 'Read a file', parameters: { type: 'object', properties: { path: { type: 'string' } } } }],
+  }
+  let previous = buildRequest(options, 'account')
+  for (let step = 0; step < 3; step++) {
+    const callId = `call-${step}` as ToolCallId
+    const output = [
+      { type: 'reasoning', id: `reason-${step}`, encrypted_content: `opaque-${step}`, summary: [] },
+      { type: 'function_call', id: `fc-${step}`, call_id: callId, name: 'read_file', namespace: 'harness', arguments: '{"path":"README.md"}', status: 'completed' },
+    ]
+    options = { ...options, messages: [...options.messages,
+      createAssistantMessage({ content: [{ type: 'tool-call', id: callId, name: 'read_file', arguments: '{"path":"README.md"}' }], source: { provider: options.provider, model: options.model, replayState: { response: { accountId: 'account', output } } } }),
+      createToolResultMessage({ callId, isError: false, content: [{ type: 'text', text: `Result ${step}` }] }),
+      { role: 'user', content: [{ type: 'text', text: `New runtime context ${step}` }] },
+    ] }
+    const original = structuredClone(options)
+    const current = buildRequest(options, 'account')
+    assert.ok(Array.isArray(previous.input) && Array.isArray(current.input))
+    assert.equal(JSON.stringify(current.input.slice(0, previous.input.length)), JSON.stringify(previous.input))
+    assert.equal(JSON.stringify(current.tools), JSON.stringify(previous.tools))
+    assert.deepEqual(current.reasoning, previous.reasoning)
+    assert.equal(current.prompt_cache_key, previous.prompt_cache_key)
+    assert.equal(JSON.stringify(buildRequest(options, 'account')), JSON.stringify(current))
+    assert.deepEqual(options, original, 'serialization must not mutate retained history')
+    previous = current
+  }
+})
+
 test('switching models drops tool item IDs but preserves call linkage and encrypted reasoning', () => {
   const options = {
     provider: 'chatgpt-sub', model: 'new-model', messages: [{ id: 'message-id' as MessageId, role: 'assistant', content: [], source: {
@@ -251,7 +325,7 @@ test('real OpenAI SSE client uses account catalog, shared transport and required
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'Content-Type': 'text/event-stream' } })
   }
   const store = memoryStore({ version: 1, hostId: 'urn:uuid:test', activeId: 'one', accounts: ['one', 'two'].map(id => ({ id, clientId: id, subject: id, email: `${id}@example.com`, tokens: { access: `${id}-token`, idToken: 'test', expiresAt: Date.now() + 3600000, scopes: SCOPES.split(' ') } })) })
-  const auth = new AuthService(store, new OAuth(fetcher), { proxyMode: 'direct', proxyUrlEnv: '', callbackPort: 0 })
+  const auth = new AuthService(store, new OAuth(fetcher), { callbackPort: 0 })
   const adapter = new ChatGPTAdapter(auth, fetcher)
   try {
     assert.deepEqual((await adapter.listModels()).map(m => m.id), ['available-model'])
@@ -330,10 +404,12 @@ test('account model catalog enables only advertised efforts and forwards selecti
     return new Response(`data: ${JSON.stringify(completed)}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })
   }
   const store = memoryStore({ version: 1, hostId: 'urn:uuid:test', activeId: 'one', accounts: [{ id: 'one', clientId: 'one', subject: 'one', email: 'one@example.com', tokens: { access: 'one-token', idToken: 'test', expiresAt: Date.now() + 3600000, scopes: SCOPES.split(' ') } }] })
-  const auth = new AuthService(store, new OAuth(fetcher), { proxyMode: 'direct', proxyUrlEnv: '', callbackPort: 0 })
+  const auth = new AuthService(store, new OAuth(fetcher), { callbackPort: 0 })
   const adapter = new ChatGPTAdapter(auth, fetcher)
   try {
     const model = await adapter.resolveModel('chatgpt-sub', 'gpt-6-luna')
+    assert.equal(model.toolUpdate, 'addition-only')
+    assert.equal(model.systemPromptUpdate, undefined)
     assert.deepEqual(model.reasoning, { efforts: [
       { id: 'low', name: 'low', description: 'Fast' },
       { id: 'medium', name: 'medium', description: 'Balanced' },

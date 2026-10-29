@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { LlmError, type GenerateOptions, type MessageId, type ToolCallId } from '@deepseek-ai/dsh-llm'
+import { LlmError, createDeveloperMessage, projectToolUpdates, type GenerateOptions, type MessageId, type ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ResponseCreateParamsStreaming } from 'openai/resources/responses/responses'
 import { ChatGPTAdapter } from '../src/adapter/index.js'
 import { buildRequest } from '../src/adapter/request.js'
@@ -135,7 +135,7 @@ function adapterFixture(searchMode?: () => SearchMode, respond?: () => Response,
     return new Response(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [] } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })
   }
   const store = memoryStore({ version: 1, hostId: 'test-host', activeId: 'test-account', accounts: [{ id: 'test-account', clientId: 'test-client', subject: 'test-subject', email: 'test@example.com', tokens: { access: 'synthetic-access', idToken: 'synthetic-id', expiresAt: Date.now() + 3_600_000, scopes: SCOPES.split(' ') } }] })
-  const auth = new AuthService(store, new OAuth(fetcher), { proxyMode: 'direct', proxyUrlEnv: '', callbackPort: 0 })
+  const auth = new AuthService(store, new OAuth(fetcher), { callbackPort: 0 })
   const adapter = new ChatGPTAdapter(auth, fetcher, () => { preparingAttachments?.(); return {} }, { searchMode })
   return { adapter, auth, requests }
 }
@@ -170,6 +170,31 @@ test('default native mode omits direct Harness search while passing PTC through 
     assert.deepEqual(functionNames(request), ['run_code'])
     assert.equal(request.tools?.some(tool => tool.type === 'web_search'), true)
     assert.equal(request.instructions, undefined)
+  } finally { fixture.auth.dispose() }
+})
+
+test('prepared adapter sends Harness additions through the SDK at their historical position', async () => {
+  const fixture = adapterFixture(() => 'off')
+  try {
+    const prepared = await fixture.adapter.prepareCall(base.provider, base.model)
+    assert.equal(prepared.model.toolUpdate, 'addition-only')
+    const activate = createDeveloperMessage({ source: { kind: 'user' }, content: [{ type: 'tool-addition', toolName: codeTool.name }] })
+    const history = { tools: [tools[2]!], updates: [{ messageId: activate.id, additions: [codeTool] }] }
+    const messages = [...base.messages, activate]
+    const current = [tools[2]!, codeTool]
+    const projected = projectToolUpdates(messages, current, prepared.model.toolUpdate, history)
+    for await (const _chunk of prepared.stream({ ...base, messages: [...projected.messages], tools: [...projected.tools!], toolHistory: history })) {}
+    const body = fixture.requests.at(-1)!.body!
+    assert.deepEqual(functionNames(body), ['read_file'])
+    assert.ok(Array.isArray(body.input))
+    assert.deepEqual(body.input[0], { role: 'user', content: 'Find current information.' })
+    const added = body.input[1]
+    assert.equal(added.type, 'additional_tools')
+    if (added.type !== 'additional_tools') throw new Error('Missing activation')
+    assert.equal(added.role, 'developer')
+    assert.deepEqual(added.tools, [{ type: 'namespace', name: 'harness', description: 'Tools executed by DeepSeek Harness.', tools: [
+      { type: 'function', name: codeTool.name, description: codeTool.description, parameters: codeTool.parameters, strict: false },
+    ] }])
   } finally { fixture.auth.dispose() }
 })
 

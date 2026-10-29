@@ -9,6 +9,24 @@ import { searchEvidence } from './search-evidence.js'
 const retryPolicy = resolveRetryPolicy(undefined, 'chatgpt-sub')
 const retryableCodes = new Set(retryPolicy.mode === 'normal' ? retryPolicy.retryableCodes : [])
 
+interface UsageFacts {
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number } | null
+  output_tokens_details?: { reasoning_tokens?: number } | null
+}
+function usageChunk(usage: UsageFacts | null | undefined): StreamChunk | undefined {
+  if (!usage) return undefined
+  const cached = usage.input_tokens_details?.cached_tokens
+  const written = usage.input_tokens_details?.cache_write_tokens
+  return { type: 'usage', usage: {
+    inputTokens: Math.max(0, usage.input_tokens - (cached ?? 0) - (written ?? 0)), outputTokens: usage.output_tokens, totalTokens: usage.total_tokens,
+    ...(cached === undefined ? {} : { cacheReadTokens: cached }), ...(written === undefined ? {} : { cacheWriteTokens: written }),
+    reasoningTokens: usage.output_tokens_details?.reasoning_tokens,
+  } }
+}
+
 /** A provider item may already contain opaque output or have executed a hosted tool. */
 function outputStarted(event: ResponseStreamEvent): boolean {
   if (event.type === 'response.output_item.added' || event.type === 'response.output_item.done' || event.type.startsWith('response.web_search_call.')) return true
@@ -138,6 +156,38 @@ export async function* convertStream(events: AsyncIterable<ResponseStreamEvent>,
         }
         if (entry.block.type === 'text' || entry.block.type === 'reasoning') entry.block.text += event.delta
         yield { type: reasoning ? 'reasoning-delta' : 'text-delta', index: entry.index, text: event.delta }
+      } else if (event.type === 'response.incomplete' && event.response.incomplete_details?.reason === 'max_output_tokens') {
+        const output = replayOutput(event.response.output ?? [], completedItems, outputIndexes)
+        // Harness ends max-tokens turns before executing any tool calls. Even a
+        // complete call would therefore be replayed without a matching result.
+        // Within replayState, its max-tokens filtering only sanitizes blocks;
+        // our response.output would still contain function_call items.
+        // Fail rather than commit orphaned calls. Non-abort failures are recorded
+        // as attempts, not recoverable partial assistant messages.
+        if (tools || output.some(item => item.type === 'function_call')) {
+          throw new ChatGPTRequestError('ChatGPT reached its output limit during tool calls. The response could not be completed safely.', 'INTERRUPTED_STREAM', context)
+        }
+        // The provider chose its own output cap (this sign-in channel rejects
+        // max_output_tokens). A truncated answer is a completed turn with
+        // `max-tokens`, not a failed one; keep its partial blocks and replay state.
+        for (const item of event.response.output ?? []) {
+          if (item.type === 'web_search_call') yield* searchProgress(item.id, item.action, item.status)
+          if (item.type === 'message') item.content.forEach((part, index) => {
+            if (part.type === 'output_text' && part.annotations?.length) citations.set(`text:${item.id}:${index}`, part.annotations)
+          })
+        }
+        for (const key of blocks.keys()) yield* closeBlock(key)
+        const usage = usageChunk(event.response.usage)
+        if (usage) yield usage
+        const evidence = searchEvidence(output)
+        if (evidence) {
+          const index = next++
+          yield { type: 'block-start', index, blockType: 'reasoning' }
+          yield { type: 'reasoning-delta', index, text: evidence }
+          yield { type: 'block-end', index, block: { type: 'reasoning', text: evidence } }
+        }
+        yield { type: 'finish', reason: { kind: 'max-tokens' }, replayState: { response: { output, ...(accountId ? { accountId } : {}) } } }
+        return
       } else if (event.type === 'response.failed' || event.type === 'response.incomplete' || event.type === 'error') {
         const error = event.type === 'error' ? event : event.response.error ?? { code: event.type === 'response.incomplete' ? event.response.incomplete_details?.reason ?? 'incomplete_response' : 'response_failed' }
         throw mapOpenAIError({ error }, context)
@@ -150,12 +200,8 @@ export async function* convertStream(events: AsyncIterable<ResponseStreamEvent>,
           })
         }
         for (const key of blocks.keys()) yield* closeBlock(key)
-        const usage = event.response.usage
-        if (usage) {
-          const cached = usage.input_tokens_details?.cached_tokens
-          const written = usage.input_tokens_details?.cache_write_tokens
-          yield { type: 'usage', usage: { inputTokens: Math.max(0, usage.input_tokens - (cached ?? 0) - (written ?? 0)), outputTokens: usage.output_tokens, totalTokens: usage.total_tokens, ...(cached === undefined ? {} : { cacheReadTokens: cached }), ...(written === undefined ? {} : { cacheWriteTokens: written }), reasoningTokens: usage.output_tokens_details?.reasoning_tokens } }
-        }
+        const usage = usageChunk(event.response.usage)
+        if (usage) yield usage
         // Encrypted reasoning and call IDs must survive stateless continuations.
         // Some streaming responses omit output items from the terminal snapshot.
         // Retain the completed item events so later turns can replay the answer.
