@@ -8,7 +8,7 @@ import { buildRequest } from '../src/adapter/request.js'
 import { ChatGPTAdapter } from '../src/adapter/index.js'
 import { AuthService } from '../src/auth/service.js'
 import { OAuth, SCOPES } from '../src/auth/oauth.js'
-import type { Fetch } from '../src/network/transport.js'
+import type { Fetch } from '../src/network/fetch.js'
 import { memoryStore } from './helpers.js'
 
 const ref: ImageAttachmentRef = { attachmentId: AttachmentId('image-one'), mediaType: 'image/png', bytes: 100, width: 800, height: 600, name: 'first.png' }
@@ -185,7 +185,7 @@ function setup(catalog: Record<string, unknown>[], imageServices = services) {
     return new Response(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [] } })}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })
   }
   const store = memoryStore({ version: 1, hostId: 'urn:uuid:test', activeId: 'one', accounts: ['one', 'two'].map(id => ({ id, clientId: id, subject: id, email: `${id}@example.com`, tokens: { access: `${id}-token`, idToken: 'test', expiresAt: Date.now() + 3600000, scopes: SCOPES.split(' ') } })) })
-  const auth = new AuthService(store, new OAuth(fetcher), { proxyMode: 'direct', proxyUrlEnv: '', callbackPort: 0 })
+  const auth = new AuthService(store, new OAuth(fetcher), { callbackPort: 0 })
   return { auth, requests, adapter: new ChatGPTAdapter(auth, fetcher, () => imageServices) }
 }
 

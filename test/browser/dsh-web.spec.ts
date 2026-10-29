@@ -17,7 +17,7 @@ test('installed plugin loads in DSH Web and owns a cancellable OAuth callback', 
   const panel = page.getByRole('region', { name: 'ChatGPT', exact: true })
   await expect(panel.getByText('Not connected', { exact: true })).toBeVisible()
   await panel.getByText('Network and remote hosts', { exact: true }).click()
-  await expect(panel.getByText('Inherits the Harness process HTTP(S)_PROXY and NO_PROXY environment variables.', { exact: true })).toBeVisible()
+  await expect(panel.getByText('Requests use the Harness launcher’s proxy policy (HTTP(S)_PROXY / NO_PROXY).', { exact: true })).toBeVisible()
   await panel.getByRole('button', { name: 'Continue with ChatGPT', exact: true }).click()
   try {
     const link = panel.getByRole('link', { name: 'Open ChatGPT sign-in' })

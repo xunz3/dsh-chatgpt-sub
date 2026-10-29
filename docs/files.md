@@ -12,10 +12,12 @@ The plugin caps file payloads at **20 MiB after Base64 encoding per request**, c
 
 DSH 0.2.1 converts durable file blocks to path descriptions before dispatching an adapter. The plugin uses its public `llm/stream` waterfall to carry typed user file references in a request-local async scope. It restores an occurrence only when message identity/order, untouched content, and the exact host-generated file description still match. Other providers and durable history remain unchanged; arbitrary path text is never interpreted as an attachment.
 
+This is a compatibility bridge, not a public attachment seam: it depends on the host projecting files after `llm/stream`. If captured files cannot be restored and no user file blocks remain, the bridge logs one warning through the plugin logger and leaves the host's file-handle text in place. If a future Harness projects files before this waterfall, there are no file blocks to capture or detect, so the host's file-handle text passes through without a warning. The bridge never throws or blocks a request, and `nativeFiles: false` is the explicit opt-out.
+
 Bytes are read only through `AttachmentStore.readFileStream`, with cancellation and complete integrity verification before transmission. Reads are bounded, sequential, and deduplicated within one call. No Files upload API, external file fetch, global host patch, or arbitrary filesystem reads are used. File-reader failures produce a generic reattach message without revealing host paths. Tool-result files retain their normal file-tool representation.
 
 ## Validation
 
-`pnpm test` covers inline encoding, duplicate occurrences, actual byte verification, unsupported-format fallback, cancellation, concurrent/nested scope isolation, cleanup, forged-text rejection, and integration with the real Harness LLM waterfall.
+`pnpm test` covers inline encoding, duplicate occurrences, actual byte verification, unsupported-format fallback, cancellation, concurrent/nested scope isolation, cleanup, forged-text rejection, the one-time degradation warning, and integration with the real Harness LLM waterfall.
 
 Official references: [Responses file inputs](https://developers.openai.com/api/docs/guides/file-inputs), [Sign in with ChatGPT limits](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations).

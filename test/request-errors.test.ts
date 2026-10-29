@@ -5,7 +5,7 @@ import { ChatGPTAdapter } from '../src/adapter/index.js'
 import { AuthService } from '../src/auth/service.js'
 import { OAuth, SCOPES } from '../src/auth/oauth.js'
 import { memoryStore } from './helpers.js'
-import type { Fetch } from '../src/network/transport.js'
+import type { Fetch } from '../src/network/fetch.js'
 
 const options: GenerateOptions = { provider: 'chatgpt-sub', model: 'test-model', messages: [{ role: 'user', content: [{ type: 'text', text: 'Test request' }] }] }
 const headers = { 'Content-Type': 'text/event-stream', 'x-request-id': 'req_stream-test', 'set-cookie': 'private-cookie' }
@@ -23,7 +23,7 @@ function fixture(respond: () => Response, prepare?: () => never) {
     inferences++
     return respond()
   }
-  const auth = new AuthService(store, new OAuth(fetcher), { proxyMode: 'direct', proxyUrlEnv: '', callbackPort: 0 })
+  const auth = new AuthService(store, new OAuth(fetcher), { callbackPort: 0 })
   return { auth, adapter: new ChatGPTAdapter(auth, fetcher, () => { prepare?.(); return {} }), inferences: () => inferences }
 }
 

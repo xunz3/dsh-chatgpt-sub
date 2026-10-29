@@ -19,10 +19,24 @@ const requireFile = path => assert(files.has(path.replace(/^\.\//, '')), `Missin
 requireFile('LICENSE')
 requireFile('README.zh-CN.md')
 assert.equal(read('LICENSE'), readFileSync('LICENSE', 'utf8'), 'Packaged license must match the repository')
-for (const path of [pkg.exports['.'].types, pkg.exports['.'].default, pkg.exports['./client'], pkg.exports['./package.json'], pkg.dsh.bundle.patch, 'assets/logo.svg', 'README.md']) requireFile(path)
+for (const path of [pkg.exports['.'].types, pkg.exports['.'].default, pkg.exports['./client'], pkg.exports['./package.json'], pkg.exports['./icon'], pkg.dsh.bundle.patch, 'locale/en.json', 'locale/zh.json', 'assets/logo.svg', 'README.md']) requireFile(path)
 for (const path of files) {
-  assert(/^(dist\/|docs\/|assets\/(?:logo\.svg|README\.md)$|package\.json$|README(?:\.zh-CN)?\.md$|cordis\.patch\.yml$|LICENSE(?:\..*)?$)/.test(path), `Unexpected packed file: ${path}`)
+  assert(/^(dist\/|docs\/|locale\/[a-z-]+\.json$|assets\/(?:logo\.svg|README\.md)$|icon\.svg$|package\.json$|README(?:\.zh-CN)?\.md$|cordis\.patch\.yml$|LICENSE(?:\..*)?$)/.test(path), `Unexpected packed file: ${path}`)
   assert(!/(^|\/)(?:\.env(?:\..*)?|node_modules|test-results|\.npmrc)(\/|$)/.test(path), `Private or generated file: ${path}`)
+}
+
+// Plugin Manager reads display metadata from exported locales and an exported
+// icon. Both are optional at runtime, so only a packaging check catches a
+// bundle that silently falls back to its technical package name and default art.
+const icon = read('icon.svg')
+assert.ok(icon.startsWith('<svg'), 'Icon must be an SVG document')
+assert.ok(Buffer.byteLength(icon, 'utf8') <= 256 * 1024, 'Icon must stay under the 256 KiB limit')
+for (const language of ['en', 'zh']) {
+  const meta = JSON.parse(read(`locale/${language}.json`)).meta
+  assert.equal(typeof meta?.title, 'string', `locale/${language}.json needs meta.title`)
+  assert.ok(meta.title.length > 0, `locale/${language}.json meta.title must not be empty`)
+  assert.equal(typeof meta?.description, 'string', `locale/${language}.json needs meta.description`)
+  assert.ok(meta.description.length > 0, `locale/${language}.json meta.description must not be empty`)
 }
 
 const patch = read(pkg.dsh.bundle.patch.replace(/^\.\//, ''))

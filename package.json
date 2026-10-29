@@ -15,11 +15,15 @@
       "default": "./dist/host/index.js"
     },
     "./client": "./dist/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "docs",
+    "locale/*.json",
+    "icon.svg",
     "assets/logo.svg",
     "assets/README.md",
     "cordis.patch.yml",
@@ -33,10 +37,10 @@
     },
     "client": {
       "platform": "web",
-      "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-models",
         "@deepseek-ai/dsh-client-locale"
       ]
     }
@@ -53,31 +57,31 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.5",
     "jose": "6.2.13",
-    "openai": "6.49.0",
-    "undici": "7.30.1"
+    "openai": "6.49.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.5",
-    "@deepseek-ai/dsh-attachment": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-fs": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-typert-registry": "0.2.1-rc.2"
+    "@deepseek-ai/dsh-attachment": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-credentials": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-fs": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-typert-protocol": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-typert-registry": ">=0.2.1-rc.2 <0.3.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.5",
-    "@deepseek-ai/dsh-api-remotes": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-attachment": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-locale": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-fs": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-typert-registry": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-api-remotes": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-attachment": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-client-locale": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-client-ui-settings-models": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-credentials": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-fs": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-typert-registry": "0.2.1-rc.3",
     "@playwright/test": "1.63.0",
     "@types/node": "22.20.5",
     "@types/react": "18.3.31",

@@ -24,6 +24,8 @@ test('Models settles without repeated provider invalidation in the installed hos
   expect(providers.result.ok).toBe(true)
   expect(providers.result.value).toContainEqual({ id: 'chatgpt-sub', name: 'ChatGPT plan' })
   await expect(page.getByRole('button', { name: 'Add model provider', exact: true })).toBeVisible({ timeout: 15_000 })
+  // The adapter's route is now also declared in the configurable-provider directory.
+  await expect(page.getByText('ChatGPT plan', { exact: true }).first()).toBeVisible()
   // Observe beyond initial rendering: unchanged token reads must not keep
   // triggering credentials/record-updated -> modelCatalog -> token reads.
   const settled = providerRequests

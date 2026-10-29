@@ -7,7 +7,7 @@ import { buildRequest } from '../src/adapter/request.js'
 import { searchTools } from '../src/adapter/search.js'
 import { AuthService } from '../src/auth/service.js'
 import { OAuth, SCOPES } from '../src/auth/oauth.js'
-import type { Fetch } from '../src/network/transport.js'
+import type { Fetch } from '../src/network/fetch.js'
 import type { SearchMode } from '../src/shared/search.js'
 import { memoryStore } from './helpers.js'
 

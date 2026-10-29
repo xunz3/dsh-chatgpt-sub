@@ -9,7 +9,7 @@ import { OAuth, OAuthError, SCOPES } from '../src/auth/oauth.js'
 import type { State } from '../src/auth/store.js'
 import { memoryStore } from './helpers.js'
 
-const config = { proxyMode: 'direct' as const, proxyUrlEnv: 'CHATGPT_PROXY_URL', callbackPort: 0 }
+const config = { callbackPort: 0 }
 function accountState(): State {
   return { version: 1, hostId: 'test-host', activeId: 'account', accounts: [{ id: 'account', clientId: 'client', subject: 'subject', email: 'test@example.com', tokens: {
     access: 'private-access', refresh: 'private-refresh', idToken: 'private-id-token', expiresAt: Date.now() + 3_600_000, scopes: SCOPES.split(' '),

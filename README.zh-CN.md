@@ -8,7 +8,7 @@
 
 ## 安装
 
-需要 **Node.js 22.12+** 和 **DeepSeek Harness 0.2.1-rc.2**。
+需要 **Node.js 22.12+** 和 **DeepSeek Harness 0.2.1-rc.2 至 0.2.x**（已在 0.2.1-rc.3 上验证）。
 
 从 npm 安装到你使用的 profile（以下以 `web` 为例）：
 
@@ -22,13 +22,15 @@ dsh plugin --profile web add @xunz03/dsh-chatgpt-sub
 2. 点击 **Continue with ChatGPT**，打开登录链接并完成授权。
 3. 在模型选择器的 **ChatGPT plan** 下选择模型。
 
+该 provider 也会出现在 **Settings → Models** 的 **ChatGPT plan** 行，卡片显示连接状态；完整的账户、搜索和网络选项仍在 ChatGPT 设置页。
+
 默认由 GPT 按需调用 **OpenAI 原生搜索**。在 ChatGPT 设置页可改用 Harness 搜索或关闭直接搜索声明，具体范围见[搜索配置](docs/configuration.md)。
 
-账户切换、添加与退出在设置页的 **管理** 中。插件默认继承 Harness 进程的代理环境变量；远程主机登录需要转发回调端口。
+账户切换、添加与退出在设置页的 **管理** 中。网络请求使用 Harness 启动器为进程安装的代理策略（`HTTP(S)_PROXY` / `NO_PROXY`），插件不再单独提供代理设置；远程主机登录需要转发回调端口。
 
 ## 文档
 
-- [搜索模式、代理与远程登录](docs/configuration.md)
+- [搜索模式、网络策略与远程登录](docs/configuration.md)
 - [账户、模型、搜索历史与错误处理](docs/behavior.md)
 - [原生图像输入与验证](docs/images.md)
 - [原生文件输入](docs/files.md)

@@ -18,6 +18,12 @@
 
 保持 composition 中的标准 entry ID `chatgpt-sub`，原生配置表单以此定位插件。只读配置或自定义 entry ID 会禁用选择框；可通过相应配置文件修改。
 
+## 模型目录
+
+插件把 `chatgpt-sub` 注册为 Harness 的 configurable provider。**Settings → Models** 会显示 **ChatGPT plan** 行，便于在模型提供方目录中看到它；该行的登录卡片与 **Settings → ChatGPT** 页面使用同一份连接状态。
+
+完整的账户、搜索和网络选项仍在 **Settings → ChatGPT** 页面。Models 页的通用编辑入口只显示配置提示；`callbackPort`、`imageQuality`、`nativeFiles` 等字段请在该页面或 `cordis.patch.yml` 中修改。代理由 Harness 启动器统一管理，不在插件配置中。
+
 ## 模型能力
 
 也可以在 profile 的 `cordis.patch.yml` 中配置。下面显式选择原生搜索；图像和文件选项需重载插件或重启后生效：
@@ -37,7 +43,8 @@
 
 ## 代理
 
-默认 `proxyMode: inherit`：读取 **Harness 进程启动时** 的 `HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`。
+插件不维护自己的代理配置，而是使用 Harness 启动器安装的进程级代理策略（`dsh-http-proxy` 会把它装成 undici 的全局 dispatcher）。在启动 Harness 前设置标准环境变量即可：
+
 ```sh
 HTTPS_PROXY=http://127.0.0.1:7890 \
 HTTP_PROXY=http://127.0.0.1:7890 \
@@ -45,17 +52,7 @@ NO_PROXY=localhost,127.0.0.1 \
 dsh --profile web
 ```
 
-自定义 composition patch：
-
-```yaml
-- id: chatgpt-sub
-  config:
-    proxyMode: custom
-    proxyUrlEnv: CHATGPT_PROXY_URL
-    callbackPort: 0
-```
-
-用 `CHATGPT_PROXY_URL=http://127.0.0.1:7890` 启动 Harness；如代理需要账号密码，把完整 URL 放进这个环境变量，不写入设置或版本库。`proxyMode: direct` 强制直连。配置由 Cordis 加载，修改后重载插件或重启 profile。
+因此旧的 `proxyMode` / `proxyUrlEnv` 字段已移除；请从已有的 `cordis.patch.yml` 中删除它们。需要让 ChatGPT 单独走另一个代理时，应使用部署级的网络策略，而不是插件内再建一套 dispatcher。
 
 ## 远程 Harness
 

@@ -38,14 +38,12 @@ export function parseStatus(value: unknown): Status {
   const rawFlow = object(input.flow)
   const phase = rawFlow.phase
   if (phase !== 'idle' && phase !== 'pending' && phase !== 'exchanging' && phase !== 'done' && phase !== 'error') throw new TypeError('Invalid login phase')
-  const proxyMode = input.proxyMode
-  if (proxyMode !== 'inherit' && proxyMode !== 'direct' && proxyMode !== 'custom') throw new TypeError('Invalid proxy mode')
   const flow: Status['flow'] = { phase }
   for (const field of ['url', 'callback', 'error'] as const) {
     if (rawFlow[field] !== undefined) flow[field] = string(rawFlow[field])
   }
   return {
-    accounts, flow, proxyMode,
+    accounts, flow,
     ...(input.activeId === undefined ? {} : { activeId: parseAccountId(input.activeId) }),
     ...(input.notice === undefined ? {} : { notice: string(input.notice) }),
   }

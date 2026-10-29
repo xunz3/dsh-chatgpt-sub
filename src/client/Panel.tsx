@@ -1,18 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { PluginApi, Status } from '../shared/types.js'
+import type { PluginApi } from '../shared/types.js'
 import type { SearchConfig } from '../shared/search.js'
-import type { CopyKey } from './messages.js'
+import type { Translate } from './messages.js'
 import { PluginLogo } from './PluginLogo.js'
 import { css } from './styles.js'
 import { SearchSettings } from './SearchSettings.js'
+import { useStatus } from './use-status.js'
 
-export type Translate = (key: CopyKey) => string
 const usage = 'https://chatgpt.com/settings/usage'
 export function Panel({ api, searchForm, t }: { api: PluginApi; searchForm: ConfigForm<SearchConfig>; t: Translate }) {
-  const [status, setStatus] = useState<Status>()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const { status, error, busy, act } = useStatus(api, t)
   const [welcome, setWelcome] = useState(false)
   const accountMenu = useRef<HTMLDetailsElement>(null)
   useEffect(() => {
@@ -27,22 +25,8 @@ export function Panel({ api, searchForm, t }: { api: PluginApi; searchForm: Conf
       document.removeEventListener('focusin', closeOutside)
     }
   }, [])
-  const alive = useRef(true)
-  const action = useRef(false)
   const welcomeButton = useRef<HTMLButtonElement>(null)
   const welcomeDialog = useRef<HTMLDialogElement>(null)
-  useEffect(() => {
-    alive.current = true
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout>
-    const pull = async () => {
-      try { const value = await api.status(); if (!cancelled && !action.current) setStatus(value) }
-      catch { if (!cancelled) setError(t('error')) }
-      finally { if (!cancelled) timer = setTimeout(pull, 2000) }
-    }
-    void pull()
-    return () => { cancelled = true; alive.current = false; clearTimeout(timer) }
-  }, [api, t])
   const active = status?.accounts.find(a => a.id === status.activeId)
   useEffect(() => {
     if (!active?.sharing) return
@@ -50,26 +34,19 @@ export function Panel({ api, searchForm, t }: { api: PluginApi; searchForm: Conf
   }, [active?.sharing])
   useEffect(() => { if (welcome) { welcomeDialog.current?.showModal(); welcomeButton.current?.focus() } }, [welcome])
   const dismiss = () => { try { localStorage.setItem('dsh-chatgpt-sub:welcome', '1') } catch {} setWelcome(false) }
-  const act = async (task: () => Promise<Status>) => {
-    if (action.current) return
-    action.current = true; setBusy(true); setError('')
-    try { const next = await task(); if (alive.current) setStatus(next) }
-    catch (e) { if (alive.current) setError(e instanceof Error ? e.message : t('error')) }
-    finally { action.current = false; if (alive.current) setBusy(false) }
-  }
   const pending = status?.flow.phase === 'pending' || status?.flow.phase === 'exchanging'
   return <section className="cgs" aria-label={t('title')}>
     <style>{css}</style>
-    <header><h2><PluginLogo />{t('title')}</h2><p>{t('subtitle')}</p></header>
-    {!status ? <p role="status">{t('loading')}</p> : <>
-      <section className="cgs-account" aria-label={t('currentAccount')}>
-        <h3 className="cgs-group-heading"><SectionIcon kind="account" />{t('accountGroup')}</h3>
+    <header className="cgs-header"><h2><PluginLogo />{t('title')}</h2><p>{t('subtitle')}</p></header>
+    {!status ? <p className="cgs-loading" role="status">{t('loading')}</p> : <>
+      <section className="cgs-card cgs-account" aria-label={t('accountGroup')}>
+        <div className="cgs-card-head"><h3><SectionIcon kind="account" />{t('accountGroup')}</h3></div>
         <div className="cgs-account-line">
           <div className="cgs-current"><b>{active?.email ?? t('disconnected')}</b>
-            {active && <small className={active.connected ? 'cgs-status is-connected' : 'cgs-status'}>{active.connected ? t('connected') : t('disconnected')}</small>}
+            {active && <span className={active.connected ? 'cgs-status is-connected' : 'cgs-status'}>{active.connected ? t('connected') : t('disconnected')}</span>}
           </div>
           {status.accounts.length > 0 && <details ref={accountMenu} className="cgs-account-menu" onKeyDown={e => { if (e.key === 'Escape' && e.currentTarget.open) { e.preventDefault(); e.stopPropagation(); e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } }}>
-            <summary>{t('manageAccounts')}</summary>
+            <summary>{t('manageAccounts')}<Chevron className="cgs-summary-chevron" /></summary>
             <div className="cgs-account-controls">
               <label className="cgs-label">{t('account')}
                 <select value={status.activeId ?? ''} disabled={busy || pending} onChange={e => void act(() => api.select(e.target.value))}>
@@ -98,13 +75,19 @@ export function Panel({ api, searchForm, t }: { api: PluginApi; searchForm: Conf
           <button disabled={busy} onClick={() => void act(() => api.login(active.id))}>{t('reconnect')}</button>
         </> : null}
       </section>
-      {active?.connected && active.sharing && <section className="cgs-plan-section" aria-label={t('planGroup')}>
-        <h3 className="cgs-group-heading"><SectionIcon kind="usage" />{t('planGroup')}</h3>
+      {active?.connected && active.sharing && <section className="cgs-card cgs-plan-card" aria-label={t('planGroup')}>
+        <div className="cgs-card-head"><h3><SectionIcon kind="usage" />{t('planGroup')}</h3></div>
         <div className="cgs-plan"><span title={t('planUnavailable')}>{t('planAllowance')}</span><a href={usage} target="_blank" rel="noreferrer">{t('viewPlan')} ↗</a></div>
       </section>}
-      {status.notice && <p role="status">{status.notice} <a href={usage} target="_blank" rel="noreferrer">{t('openSettings')}</a></p>}
+      {status.notice && <p className="cgs-notice" role="status">{status.notice} <a href={usage} target="_blank" rel="noreferrer">{t('openSettings')}</a></p>}
       <SearchSettings form={searchForm} t={t} />
-      <details className="cgs-network"><summary><SectionIcon kind="network" />{t('network')}</summary><p>{t(status.proxyMode)}</p><p>{t('browserProxy')}</p><p>{t('remote')}</p>{status.flow.callback && <code>{status.flow.callback}</code>}</details>
+      <details className="cgs-card cgs-network">
+        <summary><SectionIcon kind="network" />{t('network')}<Chevron className="cgs-summary-chevron cgs-network-chevron" /></summary>
+        <div className="cgs-network-body">
+          <p>{t('proxyPolicy')}</p><p>{t('browserProxy')}</p><p>{t('remote')}</p>
+          {status.flow.callback && <code>{status.flow.callback}</code>}
+        </div>
+      </details>
     </>}
     {(error || status?.flow.error) && <p className="cgs-error" role="alert">{error || status?.flow.error}</p>}
     {welcome && <dialog ref={welcomeDialog} className="cgs-welcome" aria-labelledby="cgs-welcome-title" onCancel={dismiss}>
@@ -113,6 +96,11 @@ export function Panel({ api, searchForm, t }: { api: PluginApi; searchForm: Conf
       <button ref={welcomeButton} className="cgs-primary" onClick={dismiss}>{t('gotIt')}</button>
     </dialog>}
   </section>
+}
+function Chevron({ className }: { className: string }) {
+  return <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+    <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
 }
 function SectionIcon({ kind }: { kind: 'account' | 'usage' | 'network' }) {
   return <svg className="cgs-section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

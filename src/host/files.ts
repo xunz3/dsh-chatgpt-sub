@@ -15,12 +15,27 @@ interface FileScope {
 }
 
 /**
- * DSH 0.2.1 projects durable files to text after its public llm/stream waterfall.
- * Carry only typed user attachments through that boundary in this plugin's
- * async scope. No request mutation, global patch, or parsing paths from text.
+ * DSH 0.2.1 projects durable files to text after its public llm/stream
+ * waterfall, and exposes no supported attachment passthrough for an adapter.
+ * Capture the typed user attachments at the waterfall in this plugin's own
+ * async scope; nothing is mutated and no path is parsed back out of text.
+ *
+ * If captured files cannot be restored and no user file blocks remain, report
+ * degradation once through `warn`. Files projected before this waterfall cannot
+ * be detected here; they retain the host's file-handle text without a warning.
  */
-export function createNativeFileBridge(provider: string, resolveReadPath: FileReadPath = () => undefined) {
+export function createNativeFileBridge(
+  provider: string,
+  resolveReadPath: FileReadPath = () => undefined,
+  warn: (message: string) => void = () => {},
+) {
   const storage = new AsyncLocalStorage<FileScope | undefined>()
+  let warned = false
+  const degrade = () => {
+    if (warned) return
+    warned = true
+    warn('chatgpt-sub: native file bridge could not restore captured attachments after the Harness projection; falling back to file-handle text')
+  }
   function capture(options: GenerateOptions): FileScope | undefined {
     if (options.provider !== provider) return undefined
     return {
@@ -52,6 +67,7 @@ export function createNativeFileBridge(provider: string, resolveReadPath: FileRe
               await iterator.return?.()
               throw error
             }),
+            [Symbol.asyncIterator]() { return this },
           }
         },
       }
@@ -77,6 +93,8 @@ export function createNativeFileBridge(provider: string, resolveReadPath: FileRe
         changed = true
         return { ...message, content }
       })
+      if (!changed && scope.users.some(entry => entry.files.size > 0)
+        && !options.messages.some(message => message.role === 'user' && message.content.some(block => block.type === 'file'))) degrade()
       return changed ? { ...options, messages } : options
     },
   }

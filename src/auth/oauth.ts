@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose'
-import type { Fetch } from '../network/transport.js'
+import type { Fetch } from '../network/fetch.js'
 import type { Account, Tokens } from './store.js'
 
 export const ISSUER = 'https://auth.openai.com'

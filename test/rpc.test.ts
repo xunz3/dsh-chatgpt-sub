@@ -12,7 +12,7 @@ import type { PluginApi, Status } from '../src/shared/types.js'
 
 const status: Status = {
   accounts: [{ id: 'account-1', email: 'human@example.com', connected: true, sharing: false }],
-  activeId: 'account-1', flow: { phase: 'idle' }, proxyMode: 'inherit',
+  activeId: 'account-1', flow: { phase: 'idle' },
 }
 
 test('status projection excludes credential fields at every public object boundary', () => {
@@ -23,7 +23,6 @@ test('status projection excludes credential fields at every public object bounda
   })
   assert.deepEqual(projected, status)
   assert.equal(JSON.stringify(projected).includes('secret'), false)
-  assert.throws(() => parseStatus({ ...status, proxyMode: 'unknown' }))
 })
 
 test('manual descriptors retain optional login and validate destructive operation identities', () => {
@@ -98,18 +97,20 @@ test('Host plugin mounts its adapter and RPC against real Cordis services and un
   const llm = ctx.plugin(LlmRuntime)
   const credentials = ctx.plugin(MemoryCredentials)
   await Promise.all([registry, llm, credentials])
-  const plugin = ctx.plugin(hostPlugin, { proxyMode: 'direct', proxyUrlEnv: 'CHATGPT_PROXY_URL', callbackPort: 0 })
+  const plugin = ctx.plugin(hostPlugin, { callbackPort: 0 })
   await plugin
   try {
     assert.equal(ctx.llm.listProviders().some(provider => provider.id === 'chatgpt-sub'), true)
+    assert.deepEqual(ctx.llm.listConfigurableProviders(), [hostPlugin.providerEntry('chatgpt-sub')])
     const owner = ctx.extend({ invocation: { peer: { principal: { kind: 'owner' } } } })
     const receiver = owner.get('chatgptSubscription' as never) as unknown as ChatGPTSubscriptionRpc
-    assert.deepEqual(await receiver.status(), { accounts: [], flow: { phase: 'idle' }, proxyMode: 'direct' })
+    assert.deepEqual(await receiver.status(), { accounts: [], flow: { phase: 'idle' } })
     assert.equal(ctx.typert.local.list().filter(descriptor => descriptor.namespace === 'chatgptSubscription').length, 5)
   } finally {
     await plugin.dispose()
   }
   assert.equal(ctx.llm.listProviders().some(provider => provider.id === 'chatgpt-sub'), false)
+  assert.deepEqual(ctx.llm.listConfigurableProviders(), [])
   assert.equal(ctx.typert.local.get('chatgptSubscription/status'), undefined)
   await Promise.all([credentials.dispose(), llm.dispose(), registry.dispose()])
 })

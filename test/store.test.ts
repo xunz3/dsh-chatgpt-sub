@@ -25,10 +25,15 @@ function credentials() {
   return { provider, get writes() { return writes } }
 }
 
-test('concurrent first reads persist one installation identity and unchanged updates emit no writes', async () => {
+test('reads never create a record; concurrent ensure persists one installation identity', async () => {
   const c = credentials()
   const stores = [createStore(c.provider), createStore(c.provider)]
-  const states = await Promise.all(stores.map(store => store.read()))
+  const empty = await Promise.all(stores.map(store => store.read()))
+  assert.equal(empty[0].hostId, '')
+  assert.equal(empty[1].hostId, '')
+  assert.equal(c.writes, 0, 'reading the connection status must not write credentials')
+  const states = await Promise.all(stores.map(store => store.ensure()))
+  assert.match(states[0].hostId, /^urn:uuid:[0-9a-f-]{36}$/)
   assert.equal(states[0].hostId, states[1].hostId)
   assert.equal(c.writes, 1)
   await stores[0].update(() => {})
@@ -55,7 +60,7 @@ test('valid token reads do not publish credential changes; concurrent refresh co
     refreshes++
     return { ...account.tokens!, access: 'rotated', refresh: 'rotated-refresh', expiresAt: Date.now() + 3600_000 }
   }
-  const auth = new AuthService(store, oauth, { proxyMode: 'direct', proxyUrlEnv: 'CHATGPT_PROXY_URL', callbackPort: 0 })
+  const auth = new AuthService(store, oauth, { callbackPort: 0 })
   try {
     await Promise.all(Array.from({ length: 10 }, () => auth.access()))
     assert.equal(c.writes, 1, 'reading valid tokens must not invalidate the model catalog')

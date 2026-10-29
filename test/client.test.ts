@@ -6,7 +6,8 @@ import { rpcContribution } from '../src/shared/rpc.js'
 
 test('Client entry injects its dynamically mounted Remote namespace before registering settings', async () => {
   const ctx = new Context()
-  let registered = 0
+  let sections = 0
+  let cards = 0
   let translated = 0
   class Namespace extends Service {
     constructor(ctx: Context) { super(ctx, 'remote.chatgptSubscription') }
@@ -21,11 +22,17 @@ test('Client entry injects its dynamically mounted Remote namespace before regis
   class Slots extends Service {
     constructor(ctx: Context) { super(ctx, 'slots') }
     inject(_name: string, callback: () => unknown) { return this.ctx.effect(callback as () => () => void) }
-    register(options: { id: string; label: () => string }) {
-      assert.equal(options.id, 'chatgpt-sub')
-      assert.equal(options.label(), 'ChatGPT')
-      registered++
-      return () => { registered-- }
+    register(options: { name: string; id?: string; key?: string; label?: () => string }) {
+      if (options.name === 'settings.section') {
+        assert.equal(options.id, 'chatgpt-sub')
+        assert.equal(options.label?.(), 'ChatGPT')
+        sections++
+        return () => { sections-- }
+      }
+      assert.equal(options.name, 'settings.models.provider-card')
+      assert.equal(options.key, 'chatgpt-sub')
+      cards++
+      return () => { cards-- }
     }
   }
   class Locale extends Service {
@@ -44,10 +51,12 @@ test('Client entry injects its dynamically mounted Remote namespace before regis
     await Promise.all([ctx.plugin(Remote), ctx.plugin(Slots), ctx.plugin(Locale), ctx.plugin(ConfigForms)])
     const plugin = ctx.plugin(clientPlugin)
     await plugin.await()
-    assert.equal(registered, 1)
+    assert.equal(sections, 1)
+    assert.equal(cards, 1)
     assert.equal(translated, 1)
     await plugin.dispose()
-    assert.equal(registered, 0)
+    assert.equal(sections, 0)
+    assert.equal(cards, 0)
     assert.equal(translated, 0)
   } finally { await ctx.fiber.dispose() }
 })

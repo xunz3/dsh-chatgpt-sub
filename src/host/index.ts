@@ -1,11 +1,11 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { resolveImageAttachmentAccess, type AdapterRegistrationHandle } from '@deepseek-ai/dsh-llm'
+import { resolveImageAttachmentAccess, type AdapterRegistrationHandle, type LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-fs'
 import { Config, readSearchConfig } from './config.js'
 import { resolveSearchMode } from '../shared/search.js'
-import { createTransport } from '../network/transport.js'
+import { appFetch } from '../network/fetch.js'
 import { createStore } from '../auth/store.js'
 import { OAuth } from '../auth/oauth.js'
 import { AuthService } from '../auth/service.js'
@@ -16,22 +16,39 @@ import { createNativeFileBridge } from './files.js'
 export { Config }
 export const name = 'chatgpt-sub'
 export const inject = ['credentials', 'llm', 'typert']
+
+/**
+ * The provider-directory row that makes the route visible in Settings →
+ * Models. The separate ChatGPT settings page remains the full control surface;
+ * this entry lets the Models page show the provider, its endpoint and its
+ * keyless ChatGPT sign-in posture instead of hiding it from the directory.
+ */
+export function providerEntry(settingsNs: string): LlmConfigurableProvider {
+  return {
+    provider: PROVIDER,
+    displayName: 'ChatGPT plan',
+    settingsNs,
+    settingsPath: [],
+    nativeAuth: { env: [], oauth: true },
+    defaultBaseURL: 'https://api.openai.com/v1',
+  }
+}
+
 export function apply(ctx: Context, config: Config) {
-  const transport = createTransport(config)
   let adapter: ChatGPTAdapter | undefined
   let registration: AdapterRegistrationHandle | undefined
-  const auth = new AuthService(createStore(ctx.credentials), new OAuth(transport.fetch), config, () => {
+  const auth = new AuthService(createStore(ctx.credentials), new OAuth(appFetch), config, () => {
     adapter?.clear()
     registration?.replace([PROVIDER])
   })
-  ctx.effect(() => () => { auth.dispose(); void transport.close() })
+  ctx.effect(() => () => { auth.dispose() })
   const filePath = (ref: import('@deepseek-ai/dsh-attachment').FileAttachmentRef) => {
     const path = ctx.get('attachments')?.fileHostPath(ref)
     return path === undefined ? undefined : ctx.get('fs')?.processPathFromHostPath(path)
   }
-  const files = createNativeFileBridge(PROVIDER, filePath)
+  const files = createNativeFileBridge(PROVIDER, filePath, message => ctx.logger.warn(message))
   if (config.nativeFiles !== false) ctx.on('llm/stream', files.middleware)
-  adapter = new ChatGPTAdapter(auth, transport.fetch, () => {
+  adapter = new ChatGPTAdapter(auth, appFetch, () => {
     const attachments = ctx.get('attachments')
     return {
       attachments,
@@ -42,5 +59,8 @@ export function apply(ctx: Context, config: Config) {
     restoreFiles: files.restore, fileServices: () => ({ attachments: ctx.get('attachments'), resolveReadPath: filePath }),
   })
   registration = ctx.llm.registerAdapter([PROVIDER], adapter)
+  // The row id is the documented `chatgpt-sub` (the bundle patch and the
+  // client configuration form address the same namespace).
+  ctx.llm.registerConfigurableProviders([providerEntry(PROVIDER)])
   mountRpc(ctx, auth)
 }

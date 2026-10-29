@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore } from 'react'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { resolveSearchMode, type SearchConfig, type SearchMode } from '../shared/search.js'
-import type { Translate } from './Panel.js'
+import type { Translate } from './messages.js'
 
 /** Use the same revision-fenced configuration form as the native General settings. */
 export function SearchSettings({ form, t }: { form: ConfigForm<SearchConfig>; t: Translate }) {
@@ -20,7 +20,7 @@ export function SearchSettings({ form, t }: { form: ConfigForm<SearchConfig>; t:
   }
   const description = mode === 'harness' ? 'searchHarnessDescription'
     : mode === 'off' ? 'searchOffDescription' : 'searchNativeDescription'
-  return <section className="cgs-search-section" aria-label={t('searchGroup')}>
+  return <section className="cgs-card cgs-search" aria-label={t('searchGroup')}>
     <div className="cgs-search-row">
       <label className="cgs-search-label" htmlFor="cgs-search-mode">
         <svg className="cgs-section-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>

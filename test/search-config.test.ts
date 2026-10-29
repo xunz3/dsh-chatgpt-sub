@@ -17,7 +17,7 @@ test('configuration defaults to native, retains explicit modes and rejects inval
 test('request-time configuration reads use current volatile values without replacing the config', () => {
   let selected: SearchMode | undefined
   const active = {
-    proxyMode: 'direct', proxyUrlEnv: 'EXISTING_PROXY', callbackPort: 10101,
+    callbackPort: 10101,
     imageQuality: 'balanced', nativeFiles: false,
     searchMode: { get: () => selected },
   } as HostConfig
@@ -26,7 +26,6 @@ test('request-time configuration reads use current volatile values without repla
     selected = searchMode
     assert.equal(resolveSearchMode(readSearchConfig(active)), searchMode)
   }
-  assert.equal(active.proxyUrlEnv, 'EXISTING_PROXY')
   assert.equal(active.nativeFiles, false)
   assert.equal(active.imageQuality, 'balanced')
 })

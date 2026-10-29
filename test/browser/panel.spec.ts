@@ -3,8 +3,8 @@ import { build } from 'esbuild'
 import type { Status } from '../../src/shared/types.js'
 import type { SearchConfig } from '../../src/shared/search.js'
 
-const signedOut: Status = { accounts: [], flow: { phase: 'idle' }, proxyMode: 'inherit' }
-const connected: Status = { accounts: [{ id: 'account-first', email: 'reader@example.com', connected: true, sharing: true }, { id: 'account-second', email: 'reader@example.com', connected: false, sharing: false }], activeId: 'account-first', flow: { phase: 'done' }, proxyMode: 'inherit' }
+const signedOut: Status = { accounts: [], flow: { phase: 'idle' } }
+const connected: Status = { accounts: [{ id: 'account-first', email: 'reader@example.com', connected: true, sharing: true }, { id: 'account-second', email: 'reader@example.com', connected: false, sharing: false }], activeId: 'account-first', flow: { phase: 'done' } }
 
 function searchFormSource(config: SearchConfig = {}, writable = true, refuse = false) {
   return `
@@ -27,7 +27,7 @@ function searchFormSource(config: SearchConfig = {}, writable = true, refuse = f
 async function mount(page: Page, state: Status, dark = false, zh = false, config: SearchConfig = {}, writable = true, refuse = false) {
   await page.route('http://fixture.local/', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><main id="root"></main></body></html>' }))
   await page.goto('http://fixture.local/')
-  await page.addStyleTag({ content: `body{margin:0;padding:32px;font-family:system-ui;background:${dark ? '#18191b' : '#fff'};color:${dark ? '#eee' : '#202124'}}:root{--dsw-alias-bg-base:${dark ? '#18191b' : '#fff'};--dsw-alias-bg-layer-1:${dark ? '#222326' : '#f7f7f7'};--dsw-alias-label-primary:${dark ? '#eee' : '#202124'};--dsw-alias-label-secondary:${dark ? '#a3a4aa' : '#65676b'};--dsw-alias-border-l1:${dark ? '#36373b' : '#ddd'};--dsw-alias-border-l2:${dark ? '#45464a' : '#ccc'}}@media(max-width:480px){body{padding:20px}}` })
+  await page.addStyleTag({ content: `body{margin:0;padding:32px;font-family:system-ui;background:${dark ? '#18191b' : '#fff'};color:${dark ? '#eee' : '#202124'}}:root{--dsw-alias-bg-base:${dark ? '#18191b' : '#fff'};--dsw-alias-bg-layer-1:${dark ? '#222326' : '#f7f7f7'};--dsw-alias-label-primary:${dark ? '#eee' : '#202124'};--dsw-alias-label-secondary:${dark ? '#a3a4aa' : '#65676b'};--dsw-alias-border-l1:${dark ? '#36373b' : '#ddd'};--dsw-alias-border-l2:${dark ? '#45464a' : '#ccc'};--dsw-alias-bg-layer-2:${dark ? '#222326' : '#f5f6f7'};--dsw-alias-settings-card-fill:${dark ? '#222326' : '#f7f7f7'};--dsw-alias-settings-card-stroke:${dark ? '#34353a' : '#e1e2e5'};--dsw-alias-border-l3:${dark ? '#3a3b3f' : '#d5d6d9'};--dsw-alias-border-l4:${dark ? '#34353a' : '#e1e2e5'};--dsw-alias-interactive-bg-hover:${dark ? 'rgba(255,255,255,.06)' : 'rgba(0,0,0,.04)'};--dsw-alias-button-primary-fill:${dark ? '#eee' : '#202124'};--dsw-alias-button-primary-hover:${dark ? '#fff' : '#000'};--dsw-alias-label-primary-foreground:${dark ? '#18191b' : '#fff'};--dsw-alias-state-business-primary:#3663d9;--dsw-focus-ring-color:#3663d9;--dsw-radius-sm:6px;--dsw-radius-md:8px;--dsw-radius-lg:12px;--dsw-radius-xl:20px;--dsw-elevation-prominent:0 3px 8px rgba(0,0,0,.04),0 0 20px rgba(0,0,0,.05)}@media(max-width:480px){body{padding:20px}}` })
   const result = await build({ stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
     import React from 'react'; import { createRoot } from 'react-dom/client';
     import { Panel } from './src/client/Panel.tsx'; import { en, zh } from './src/client/messages.ts';
@@ -80,6 +80,10 @@ test('dark mobile Chinese UI stays within the viewport', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await mount(page, connected, true, true)
   await page.getByRole('button', { name: '知道了' }).click()
+  await page.getByText('管理', { exact: true }).click()
+  await expect(page.getByRole('combobox', { name: '切换账户' })).toBeVisible()
+  await page.screenshot({ path: 'test-results/chatgpt-dark-manage.png', fullPage: true })
+  await page.keyboard.press('Escape')
   await page.getByText('网络与远程主机', { exact: true }).click()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await expect(page.getByRole('link', { name: '在 ChatGPT 查看' })).toBeVisible()
@@ -105,6 +109,7 @@ test('account management identifies registrations and shows plan access for the 
   await page.screenshot({ path: 'test-results/chatgpt-connected.png', fullPage: true })
   await page.getByText('Manage', { exact: true }).click()
   await expect(page.locator('.cgs-account-controls')).toContainText('-first')
+  await page.screenshot({ path: 'test-results/chatgpt-manage.png' })
   await expect(page.getByText('Switching accounts stops requests in progress.', { exact: false })).toBeVisible()
   await page.getByRole('combobox', { name: 'Switch account' }).selectOption('account-second')
   await expect(page.locator('.cgs-account-controls')).toContainText('second')

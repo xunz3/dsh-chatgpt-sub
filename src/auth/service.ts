@@ -11,11 +11,11 @@ export class AuthService implements PluginApi {
   private lifetime = new AbortController()
   private requests = new AbortController()
   private notice?: string
-  constructor(readonly store: Store, private oauth: OAuth, private config: Config, private changed: () => void = () => {}) {}
+  constructor(readonly store: Store, private oauth: OAuth, private config: Pick<Config, 'callbackPort'>, private changed: () => void = () => {}) {}
   private invalidate() { this.requests.abort(); this.requests = new AbortController(); this.changed() }
   async status(): Promise<Status> {
     const state = await this.store.read()
-    return { activeId: state.activeId, proxyMode: this.config.proxyMode, flow: { ...this.flow }, notice: this.notice,
+    return { activeId: state.activeId, flow: { ...this.flow }, notice: this.notice,
       accounts: state.accounts.map(a => ({ id: a.id, email: a.email, connected: !!a.tokens, sharing: !!a.tokens && hasPlanPermission(a.tokens) })) }
   }
   async login(accountId?: string) {
@@ -27,7 +27,7 @@ export class AuthService implements PluginApi {
     const signal = AbortSignal.any([controller.signal, this.lifetime.signal, AbortSignal.timeout(5 * 60_000)])
     let listener: Awaited<ReturnType<typeof listenCallback>> | undefined
     try {
-      const state = await this.store.read()
+      const state = await this.store.ensure()
       const account = accountId ? state.accounts.find(a => a.id === accountId) : undefined
       if (accountId && !account) throw new Error('Unknown ChatGPT account.')
       const clientId = account?.clientId ?? state.pendingClientId

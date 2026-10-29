@@ -5,10 +5,10 @@ import { OAuth, OAuthError, ISSUER, SCOPES } from '../src/auth/oauth.js'
 import { connect } from 'node:net'
 import { AuthService } from '../src/auth/service.js'
 import { listenCallback } from '../src/auth/callback.js'
-import type { Fetch } from '../src/network/transport.js'
+import type { Fetch } from '../src/network/fetch.js'
 import { memoryStore, eventually } from './helpers.js'
 
-const config = { proxyMode: 'direct' as const, proxyUrlEnv: 'CHATGPT_PROXY_URL', callbackPort: 0 }
+const config = { callbackPort: 0 }
 async function fixture() {
   const pair = await generateKeyPair('RS256')
   const jwk = { ...await exportJWK(pair.publicKey), kid: 'test-key' }

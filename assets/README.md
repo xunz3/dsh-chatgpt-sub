@@ -5,8 +5,10 @@ whale contour and knot path are retained, with a new mouth cutout and eye.
 The mark is monochrome; in the UI it follows the host's foreground color.
 This is this community plugin's identity, not an official joint product mark.
 
-`logo.svg` is the standalone vector included in the npm package.
+`logo.svg` is the standalone transparent vector included in the npm package.
+`icon.svg` at the package root is the same artwork on a brand-blue chip for the Plugin Manager inventory; it is used only as the exported `./icon` and is not inlined into the UI.
 The React version preserves `currentColor` and uses a unique mask ID per instance.
+The SVG variants and React paths are maintained separately; artwork changes should update all three together.
 
 Source SVGs downloaded on 2026-10-23:
 

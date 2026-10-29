@@ -93,6 +93,20 @@ test('file bridge restores only captured references and rejects changed or forge
   assert.equal(bridge.restore(projected), projected, 'scope must not leak to caller')
 })
 
+test('file bridge reports a projection it cannot restore once and keeps the host text', async () => {
+  const warnings: string[] = []
+  const bridge = createNativeFileBridge('chatgpt-sub', () => undefined, message => { warnings.push(message) })
+  const input = options(file())
+  const changed = { ...projection(input), messages: [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text' as const, text: 'changed by the host' }] })] }
+  await consume(bridge.middleware(input, async function* () {
+    assert.equal(bridge.restore(changed), changed)
+    assert.equal(bridge.restore(changed), changed)
+  }))
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0], /native file bridge/)
+  assert.equal(JSON.stringify(warnings).includes('example.pdf'), false, 'the diagnostic must not carry attachment names')
+})
+
 test('file bridge isolates interleaved calls and keeps iterator cleanup in its own scope', async () => {
   const bridge = createNativeFileBridge('chatgpt-sub')
   const first = options(file())

@@ -8,7 +8,7 @@ import { ChatGPTAdapter } from '../src/adapter/index.js'
 import { AuthService } from '../src/auth/service.js'
 import { OAuth, SCOPES } from '../src/auth/oauth.js'
 import { memoryStore } from './helpers.js'
-import type { Fetch } from '../src/network/transport.js'
+import type { Fetch } from '../src/network/fetch.js'
 import { ChatGPTRequestError } from '../src/adapter/errors.js'
 
 async function* events(values: unknown[]) { for (const value of values) yield value as ResponseStreamEvent }

@@ -8,7 +8,7 @@ The plugin connects accounts, discovers models, and adapts Responses requests. H
 
 ## Install
 
-Requires **Node.js 22.12+** and **DeepSeek Harness 0.2.1-rc.2**.
+Requires **Node.js 22.12+** and **DeepSeek Harness 0.2.1-rc.2 through 0.2.x** (tested with 0.2.1-rc.3).
 
 Install from npm into your Harness profile (`web` in this example):
 
@@ -22,13 +22,15 @@ dsh plugin --profile web add @xunz03/dsh-chatgpt-sub
 2. Click **Continue with ChatGPT**, open the sign-in link, and complete authorization.
 3. Select a model under **ChatGPT plan** in the model picker.
 
+The provider also appears in **Settings → Models** as **ChatGPT plan**, where a compact card shows the connection state. The full account, search and network options stay on the ChatGPT settings page.
+
 GPT uses **OpenAI native search** as needed by default. In ChatGPT settings, you can select Harness search or disable direct search declarations. See [search configuration](docs/configuration.md) for the scope of each mode.
 
-Switch, add, or sign out of accounts under **Manage**. The plugin inherits the Harness process's proxy environment variables by default. Signing in on a remote host requires forwarding the callback port.
+Switch, add, or sign out of accounts under **Manage**. Network requests use the proxy policy the Harness launcher installs for the process (`HTTP(S)_PROXY` / `NO_PROXY`); the plugin has no separate proxy setting. Signing in on a remote host requires forwarding the callback port.
 
 ## Documentation
 
-- [Search modes, proxies, and remote sign-in](docs/configuration.md) (Chinese)
+- [Search modes, network policy, and remote sign-in](docs/configuration.md) (Chinese)
 - [Accounts, models, search history, and error handling](docs/behavior.md) (Chinese)
 - [Native image input and validation](docs/images.md) (Chinese)
 - [Native file input](docs/files.md)
