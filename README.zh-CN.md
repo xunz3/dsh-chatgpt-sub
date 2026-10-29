@@ -46,7 +46,7 @@ pnpm check:package
 
 常规检查使用模拟请求；真实 Harness 测试需要显式开启，见[验证说明](docs/behavior.md#验证)。
 
-本地验证安装可在上述打包检查后运行 `dsh plugin --profile web add ./xunz03-dsh-chatgpt-sub-0.1.0.tgz`。
+本地验证安装可在上述打包检查后运行 `dsh plugin --profile web add ./xunz03-dsh-chatgpt-sub-0.1.1.tgz`。
 
 [发布流程](docs/releasing.md)
 

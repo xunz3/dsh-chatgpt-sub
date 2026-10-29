@@ -1,6 +1,6 @@
 {
   "name": "@xunz03/dsh-chatgpt-sub",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "description": "Sign in with ChatGPT and use your plan in DeepSeek Harness",
   "type": "module",
